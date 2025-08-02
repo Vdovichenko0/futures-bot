@@ -9,6 +9,9 @@ import io.cryptobot.configs.service.AppConfig;
 import io.cryptobot.market_data.aggTrade.AggTrade;
 import io.cryptobot.market_data.aggTrade.AggTradeMapper;
 import io.cryptobot.market_data.aggTrade.AggTradeService;
+import io.cryptobot.market_data.depth.DepthMapper;
+import io.cryptobot.market_data.depth.DepthService;
+import io.cryptobot.market_data.depth.DepthUpdateModel;
 import io.cryptobot.market_data.klines.mapper.KlineMapper;
 import io.cryptobot.market_data.klines.model.KlineModel;
 import io.cryptobot.market_data.klines.service.KlineService;
@@ -37,6 +40,7 @@ public class BinanceWebSocketService {
     private final KlineService klineService;
     private final Ticker24hService ticker24hService;
     private final AggTradeService aggTradeService;
+    private final DepthService depthService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -75,6 +79,12 @@ public class BinanceWebSocketService {
                                 if (agg != null) {
                                     aggTradeService.addAggTrade(agg);
                                 }
+                            }else if ("depthUpdate".equals(jsonNode.path("e").asText())) {
+                                DepthUpdateModel depthUpdate = DepthMapper.fromJson(jsonNode);
+                                if (depthUpdate != null) {
+//                                    log.info(depthUpdate.toString());
+                                    depthService.processDepthUpdate(depthUpdate);
+                                }
                             }
                         }
                     } catch (Exception e) {
@@ -82,9 +92,10 @@ public class BinanceWebSocketService {
                     }
                 };
 
-                wsClient.klineStream(SYMBOL, INTERVAL, callback);
-                wsClient.symbolTicker(SYMBOL, callback);
-                wsClient.aggTradeStream(SYMBOL, callback);
+//                wsClient.klineStream(SYMBOL, INTERVAL, callback);
+//                wsClient.symbolTicker(SYMBOL, callback);
+//                wsClient.aggTradeStream(SYMBOL, callback);
+                wsClient.diffDepthStream(SYMBOL,250, callback); //100,250,500
 
 
                 log.info("Successfully connected to Binance WebSocket for kline data");

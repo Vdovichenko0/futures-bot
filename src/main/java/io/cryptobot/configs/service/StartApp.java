@@ -1,5 +1,6 @@
 package io.cryptobot.configs.service;
 
+import io.cryptobot.websocket.BinanceFuturesUserDataStreamService;
 import io.cryptobot.websocket.BinanceWebSocketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +16,7 @@ public class StartApp implements ApplicationRunner {
 //    private final BybitServiceImpl bybitService;
 //    private final MainHelper mainHelper;
     private final BinanceWebSocketService binanceWebSocketService;
-//    private final BinanceSpotUserDataStreamServiceNew webSocketServiceUserData;
+    private final BinanceFuturesUserDataStreamService webSocketServiceUserData;
 //    private final KlineService klineService;
 //    private final DepthService depthService;
 
@@ -27,8 +28,8 @@ public class StartApp implements ApplicationRunner {
 //        mainHelper.getAllSymbols_AUTO();
         log.info("✅ call -> binanceWebSocketService.start()");
         binanceWebSocketService.start();
-//        log.info("✅ call -> webSocketServiceUserData.init()");
-//        webSocketServiceUserData.init();
+        log.info("✅ call -> webSocketServiceUserData.init()");
+        webSocketServiceUserData.start();
 //        log.info("✅ call -> klineService.fetchInitialKlines()");
 //        klineService.fetchInitialKlines();
 //        log.info("✅ call -> depthService.initializeOrderBooks()");

@@ -46,7 +46,6 @@ public class BinanceServiceImpl implements BinanceService {
         }
     }
 
-
     @Override
     public List<KlineModel> getKlines(String symbol, IntervalE interval, int limit) {
         try {
@@ -107,4 +106,3 @@ public class BinanceServiceImpl implements BinanceService {
         }
     }
 }
-

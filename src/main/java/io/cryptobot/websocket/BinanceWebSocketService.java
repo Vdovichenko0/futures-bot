@@ -95,7 +95,7 @@ public class BinanceWebSocketService {
 //                wsClient.klineStream(SYMBOL, INTERVAL, callback);
 //                wsClient.symbolTicker(SYMBOL, callback);
 //                wsClient.aggTradeStream(SYMBOL, callback);
-                wsClient.diffDepthStream(SYMBOL,250, callback); //100,250,500
+//                wsClient.diffDepthStream(SYMBOL,250, callback); //100,250,500
 
 
                 log.info("Successfully connected to Binance WebSocket for kline data");

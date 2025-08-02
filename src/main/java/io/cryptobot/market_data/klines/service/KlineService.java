@@ -1,8 +1,8 @@
-package io.cryptobot.klines.service;
+package io.cryptobot.market_data.klines.service;
 
 
-import io.cryptobot.klines.enums.IntervalE;
-import io.cryptobot.klines.model.KlineModel;
+import io.cryptobot.market_data.klines.enums.IntervalE;
+import io.cryptobot.market_data.klines.model.KlineModel;
 
 import java.util.List;
 

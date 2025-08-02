@@ -1,4 +1,4 @@
-package io.cryptobot.ticker24h;
+package io.cryptobot.market_data.ticker24h;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.experimental.UtilityClass;

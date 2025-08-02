@@ -2,8 +2,8 @@ package io.cryptobot.controller;
 
 import io.cryptobot.binance.BinanceService;
 import io.cryptobot.binance.BinanceServiceImpl;
-import io.cryptobot.klines.enums.IntervalE;
-import io.cryptobot.klines.model.KlineModel;
+import io.cryptobot.market_data.klines.enums.IntervalE;
+import io.cryptobot.market_data.klines.model.KlineModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;

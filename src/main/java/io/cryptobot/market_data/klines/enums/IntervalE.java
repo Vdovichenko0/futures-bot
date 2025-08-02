@@ -1,4 +1,4 @@
-package io.cryptobot.klines.enums;
+package io.cryptobot.market_data.klines.enums;
 
 import lombok.Getter;
 

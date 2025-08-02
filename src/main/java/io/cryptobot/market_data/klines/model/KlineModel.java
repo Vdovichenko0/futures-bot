@@ -1,7 +1,7 @@
-package io.cryptobot.klines.model;
+package io.cryptobot.market_data.klines.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import io.cryptobot.klines.enums.IntervalE;
+import io.cryptobot.market_data.klines.enums.IntervalE;
 import lombok.Data;
 
 import java.math.BigDecimal;

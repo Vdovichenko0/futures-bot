@@ -2,9 +2,9 @@ package io.cryptobot.binance;
 
 import com.binance.connector.futures.client.impl.UMFuturesClientImpl;
 import io.cryptobot.configs.service.AppConfig;
-import io.cryptobot.klines.enums.IntervalE;
-import io.cryptobot.klines.mapper.KlineMapper;
-import io.cryptobot.klines.model.KlineModel;
+import io.cryptobot.market_data.klines.enums.IntervalE;
+import io.cryptobot.market_data.klines.mapper.KlineMapper;
+import io.cryptobot.market_data.klines.model.KlineModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

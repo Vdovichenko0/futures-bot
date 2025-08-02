@@ -6,12 +6,15 @@ import com.binance.connector.futures.client.utils.WebSocketCallback;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cryptobot.configs.service.AppConfig;
-import io.cryptobot.klines.mapper.KlineMapper;
-import io.cryptobot.klines.model.KlineModel;
-import io.cryptobot.klines.service.KlineService;
-import io.cryptobot.ticker24h.Ticker24h;
-import io.cryptobot.ticker24h.Ticker24hMapper;
-import io.cryptobot.ticker24h.Ticker24hService;
+import io.cryptobot.market_data.aggTrade.AggTrade;
+import io.cryptobot.market_data.aggTrade.AggTradeMapper;
+import io.cryptobot.market_data.aggTrade.AggTradeService;
+import io.cryptobot.market_data.klines.mapper.KlineMapper;
+import io.cryptobot.market_data.klines.model.KlineModel;
+import io.cryptobot.market_data.klines.service.KlineService;
+import io.cryptobot.market_data.ticker24h.Ticker24h;
+import io.cryptobot.market_data.ticker24h.Ticker24hMapper;
+import io.cryptobot.market_data.ticker24h.Ticker24hService;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,8 +33,10 @@ public class BinanceWebSocketService {
     private WebsocketClient wsClient;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile boolean running = true;
+
     private final KlineService klineService;
     private final Ticker24hService ticker24hService;
+    private final AggTradeService aggTradeService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -53,14 +58,22 @@ public class BinanceWebSocketService {
                         JsonNode jsonNode = objectMapper.readTree(data);
 
                         if (jsonNode.has("e")) {
+//                            log.info(jsonNode.toString());
                             String event = jsonNode.get("e").asText();
                             if ("kline".equals(event)) {
                                 KlineModel kline = KlineMapper.parseKlineFromWs(jsonNode);
-                                processKline(kline);
+                                if (kline.isClosed()) {
+                                    klineService.addKline(kline);
+                                }
                             } else if ("24hrTicker".equals(event)) {
                                 Ticker24h ticker = Ticker24hMapper.from24hTicker(jsonNode);
                                 if (ticker != null) {
                                     ticker24hService.addPrice(ticker);
+                                }
+                            }else if ("aggTrade".equals(jsonNode.path("e").asText())) {
+                                AggTrade agg = AggTradeMapper.fromJson(jsonNode);
+                                if (agg != null) {
+                                    aggTradeService.addAggTrade(agg);
                                 }
                             }
                         }
@@ -71,6 +84,7 @@ public class BinanceWebSocketService {
 
                 wsClient.klineStream(SYMBOL, INTERVAL, callback);
                 wsClient.symbolTicker(SYMBOL, callback);
+                wsClient.aggTradeStream(SYMBOL, callback);
 
 
                 log.info("Successfully connected to Binance WebSocket for kline data");
@@ -83,12 +97,6 @@ public class BinanceWebSocketService {
                 log.error("WebSocket connection failed, will retry in 3s", e);
                 sleepUninterruptibly(3);
             }
-        }
-    }
-
-    private void processKline(KlineModel kline) {
-        if (kline.isClosed()) {
-            klineService.addKline(kline);
         }
     }
 

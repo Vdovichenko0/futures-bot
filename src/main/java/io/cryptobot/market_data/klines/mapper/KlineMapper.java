@@ -1,9 +1,9 @@
-package io.cryptobot.klines.mapper;
+package io.cryptobot.market_data.klines.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.cryptobot.klines.enums.IntervalE;
-import io.cryptobot.klines.model.KlineModel;
+import io.cryptobot.market_data.klines.enums.IntervalE;
+import io.cryptobot.market_data.klines.model.KlineModel;
 import lombok.experimental.UtilityClass;
 import org.jetbrains.annotations.NotNull;
 

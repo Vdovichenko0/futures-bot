@@ -1,7 +1,7 @@
 package io.cryptobot.binance;
 
-import io.cryptobot.klines.enums.IntervalE;
-import io.cryptobot.klines.model.KlineModel;
+import io.cryptobot.market_data.klines.enums.IntervalE;
+import io.cryptobot.market_data.klines.model.KlineModel;
 
 import java.util.List;
 

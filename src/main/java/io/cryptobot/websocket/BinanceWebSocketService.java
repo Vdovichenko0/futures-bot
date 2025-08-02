@@ -8,8 +8,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cryptobot.configs.service.AppConfig;
 import io.cryptobot.klines.mapper.KlineMapper;
 import io.cryptobot.klines.model.KlineModel;
-import jakarta.annotation.PostConstruct;
+import io.cryptobot.klines.service.KlineService;
+import io.cryptobot.ticker24h.Ticker24h;
+import io.cryptobot.ticker24h.Ticker24hMapper;
+import io.cryptobot.ticker24h.Ticker24hService;
 import jakarta.annotation.PreDestroy;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -18,13 +22,17 @@ import java.util.concurrent.Executors;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class BinanceWebSocketService {
-
-    private static final String SYMBOL = "btcusdt";
+    private static final String SYMBOL = "BTCUSDT";
     private static final String INTERVAL = "1m";
+
     private WebsocketClient wsClient;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile boolean running = true;
+    private final KlineService klineService;
+    private final Ticker24hService ticker24hService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public void start() {
@@ -38,30 +46,33 @@ public class BinanceWebSocketService {
                 log.info("Using WebSocket URL: {}", AppConfig.BINANCE_WS_URL);
                 
                 // Создаем WebSocket клиент для USDT-M фьючерсов
-                wsClient = new UMWebsocketClientImpl();
+                wsClient = new UMWebsocketClientImpl(AppConfig.BINANCE_WS_URL);
                 
-                WebSocketCallback callback = new WebSocketCallback() {
-                    @Override
-                    public void onReceive(String data) {
-                        try {
-                            log.debug("Received WebSocket data: {}", data);
-                            
-                            JsonNode jsonNode = objectMapper.readTree(data);
-                            
-                            if (jsonNode.has("e") && "kline".equals(jsonNode.get("e").asText())) {
+                WebSocketCallback callback = data -> {
+                    try {
+                        JsonNode jsonNode = objectMapper.readTree(data);
+
+                        if (jsonNode.has("e")) {
+                            String event = jsonNode.get("e").asText();
+                            if ("kline".equals(event)) {
                                 KlineModel kline = KlineMapper.parseKlineFromWs(jsonNode);
-//                                log.info("Processed kline for {}: Open={}, Close={}, Volume={}", kline.getSymbol(), kline.getOpenPrice(), kline.getClosePrice(), kline.getVolume());
-                                
                                 processKline(kline);
+                            } else if ("24hrTicker".equals(event)) {
+                                Ticker24h ticker = Ticker24hMapper.from24hTicker(jsonNode);
+                                if (ticker != null) {
+                                    ticker24hService.addPrice(ticker);
+                                }
                             }
-                        } catch (Exception e) {
-                            log.error("Failed to process message from Binance WS: {}", data, e);
                         }
+                    } catch (Exception e) {
+                        log.error("Failed to process message from Binance WS: {}", data, e);
                     }
                 };
 
                 wsClient.klineStream(SYMBOL, INTERVAL, callback);
-                
+                wsClient.symbolTicker(SYMBOL, callback);
+
+
                 log.info("Successfully connected to Binance WebSocket for kline data");
                 
                 while (running) {
@@ -77,7 +88,7 @@ public class BinanceWebSocketService {
 
     private void processKline(KlineModel kline) {
         if (kline.isClosed()) {
-//            log.info("Closed kline for {}: High={}, Low={}, Trades={}", kline.getSymbol(), kline.getHighPrice(), kline.getLowPrice(), kline.getNumberOfTrades());
+            klineService.addKline(kline);
         }
     }
 

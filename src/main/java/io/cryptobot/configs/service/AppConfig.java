@@ -54,20 +54,20 @@ public class AppConfig {
             futuresClient = new UMFuturesClientImpl(API_KEY, SECRET_KEY, BINANCE_URL);
             enableHedgeMode();
         } catch (Exception e) {
-            log.error("Failed to initialize futures client or enable hedge mode", e);
+            log.error("Failed to initialize futures client or enable hedge model", e);
         }
     }
 
     private void enableHedgeMode() {
         try {
-            log.info("🔄 Enabling hedge mode (dual-side position)...");
+            log.info("🔄 Enabling hedge model (dual-side position)...");
             String resp;
             try {
                 resp = setHedgeMode(true);
-                log.info("✅ Hedge mode enabled response: {}", resp);
+                log.info("✅ Hedge model enabled response: {}", resp);
             } catch (RuntimeException e) {
                 if (e.getMessage().contains("\"code\":-4059")) {
-                    log.info("✅ Hedge mode already enabled (received -4059), continuing.");
+                    log.info("✅ Hedge model already enabled (received -4059), continuing.");
                 } else {
                     throw e;
                 }
@@ -76,9 +76,9 @@ public class AppConfig {
 
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            log.warn("Interrupted while waiting after enabling hedge mode", ie);
+            log.warn("Interrupted while waiting after enabling hedge model", ie);
         } catch (Exception e) {
-            log.error("❌ Failed to enable hedge mode", e);
+            log.error("❌ Failed to enable hedge model", e);
         }
     }
 
@@ -102,7 +102,7 @@ public class AppConfig {
         if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
             return resp.body();
         } else {
-            throw new RuntimeException("Failed to set hedge mode: " + resp.statusCode() + " " + resp.body());
+            throw new RuntimeException("Failed to set hedge model: " + resp.statusCode() + " " + resp.body());
         }
     }
 

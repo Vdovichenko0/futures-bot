@@ -136,7 +136,7 @@ public class OrderServiceImpl implements OrderService{
 //            parameters.put("timeInForce", "GTC"); // Good Till Cancel
 
             if (Boolean.TRUE.equals(hedgeMode)) {
-                // В hedge mode нужно явно указывать, какую сторону позицию открываешь
+                // В hedge model нужно явно указывать, какую сторону позицию открываешь
                 // если side == BUY → LONG, если SELL → SHORT
                 String positionSide = "BUY".equalsIgnoreCase(side) ? "LONG" : "SHORT";
                 parameters.put("positionSide", positionSide);
@@ -197,7 +197,7 @@ public class OrderServiceImpl implements OrderService{
             params.put("quantity", qtyToClose.toPlainString());
 //            params.put("reduceOnly", "true");
 
-            // В hedge mode нужно указать positionSide точно таким же, как у исходной позиции (LONG/SHORT)
+            // В hedge model нужно указать positionSide точно таким же, как у исходной позиции (LONG/SHORT)
             if (order.getPositionSide() != null && !order.getPositionSide().isBlank()) {
                 params.put("positionSide", order.getPositionSide());
             }

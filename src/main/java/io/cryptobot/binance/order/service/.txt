@@ -1,0 +1,32 @@
+    private void logCurrentLeveragesAndMarginTypes() {
+        try {
+            // 1. Получить информацию по аккаунту (узнать, включён ли hedge mode)
+            LinkedHashMap<String, Object> accountParams = new LinkedHashMap<>();
+            UMFuturesClientImpl futuresClient = new UMFuturesClientImpl(AppConfig.API_KEY, AppConfig.SECRET_KEY, AppConfig.BINANCE_URL);
+            String accountInfo = futuresClient.account().accountInformation(accountParams);
+            boolean dualSide = new ObjectMapper().readTree(accountInfo).path("dualSidePosition").asBoolean(false);
+            log.info("Account position mode: {}", dualSide ? "HEDGE (dual-side)" : "ONE-WAY");
+
+            // 2. Получить информацию по позициям через V2 (positionRisk equivalent)
+            LinkedHashMap<String, Object> posParams = new LinkedHashMap<>(); // можно добавить symbol если нужно ограничить
+            String positionInfo = futuresClient.account().positionInformation(posParams);
+            JsonNode positions = new ObjectMapper().readTree(positionInfo);
+            if (positions.isArray()) {
+                for (JsonNode pos : positions) {
+                    String symbol = pos.path("symbol").asText();
+                    String positionAmt = pos.path("positionAmt").asText();
+                    String entryPrice = pos.path("entryPrice").asText();
+                    String leverage = pos.path("leverage").asText();
+                    String unrealizedPnL = pos.path("unRealizedProfit").asText(); // может называться чуть иначе в V2, проверь
+                    String marginType = pos.has("marginType") ? pos.path("marginType").asText() : "unknown";
+                    log.info("PositionRisk: symbol={}, positionAmt={}, entryPrice={}, leverage={}, unrealizedPnL={}, marginType={}",
+                            symbol, positionAmt, entryPrice, leverage, unrealizedPnL, marginType);
+                }
+            } else {
+                log.warn("Unexpected positionInformation response shape: {}", positionInfo);
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to fetch leverage/position info", e);
+        }
+    }

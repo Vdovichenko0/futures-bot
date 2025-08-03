@@ -1,12 +1,18 @@
 package io.cryptobot.binance;
 
 import com.binance.connector.futures.client.impl.UMFuturesClientImpl;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.cryptobot.binance.model.LeverageMarginInfo;
+import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
 import io.cryptobot.configs.service.AppConfig;
+import io.cryptobot.helpers.SymbolHelper;
 import io.cryptobot.market_data.klines.enums.IntervalE;
 import io.cryptobot.market_data.klines.mapper.KlineMapper;
 import io.cryptobot.market_data.klines.model.KlineModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -16,14 +22,95 @@ import java.net.http.HttpResponse;
 import java.util.*;
 import java.util.LinkedHashMap;
 
+import static io.cryptobot.configs.service.AppConfig.API_KEY;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class BinanceServiceImpl implements BinanceService {
-
+    private final UMFuturesClientImpl umFuturesClient;
     private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
     private static final String BASE_URL_KLINES = "/fapi/v1/klines";
     private static final String BASE_URL_ACCOUNT = "/fapi/v2/account";
+
+    @Scheduled(initialDelay = 30_000)
+    public void init(){
+//        getLeverageAndMarginMode("BTCUSDT");
+//        setLeverage("BTCUSDT", 10);
+//        setMarginType("BTCUSDT", true);
+//        SizeModel sizeModel = SymbolHelper.getSizeModel("BTCUSDT");
+    }
+
+    @Override
+    public LeverageMarginInfo getLeverageAndMarginMode(String symbol) {
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", symbol.toUpperCase());
+
+            String result = umFuturesClient.account().positionInformation(params);
+            JsonNode arrayNode = objectMapper.readTree(result);
+
+            for (JsonNode node : arrayNode) {
+                if (symbol.equalsIgnoreCase(node.get("symbol").asText()) && "LONG".equals(node.get("positionSide").asText())) {
+                    int leverage = node.get("leverage").asInt();
+                    boolean isolated = node.get("isolated").asBoolean();
+                    return LeverageMarginInfo.builder()
+                            .symbol(symbol.toUpperCase())
+                            .leverage(leverage)
+                            .isolated(isolated)
+                            .build();
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to get leverage/margin info for symbol: {}", symbol, e);
+        }
+        return null;
+    }
+
+    public boolean setLeverage(String symbol, int leverage) {
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", symbol.toUpperCase());
+            params.put("leverage", leverage);
+
+            String response = umFuturesClient.account().changeInitialLeverage(params);
+            log.info("✅ Leverage set: symbol={}, leverage={}, response={}", symbol, leverage, response);
+            return true;
+        } catch (Exception e) {
+            log.error("❌ Failed to set leverage: symbol={}, leverage={}", symbol, leverage, e);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean setMarginType(String symbol, boolean isolated) {
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", symbol.toUpperCase());
+            params.put("marginType", isolated ? "ISOLATED" : "CROSSED");
+
+            String response = umFuturesClient.account().changeMarginType(params);
+
+            log.info("✅ Margin type set: symbol={}, isolated={}, response={}", symbol, isolated, response);
+            return true;
+
+        } catch (Exception e) {
+            String message = e.getMessage();
+            if (message != null) {
+                if (message.contains("\"code\":-4046")) {
+                    log.info("✅ Margin type already set: symbol={}, isolated={}", symbol, isolated);
+                    return true;
+                }
+                if (message.contains("\"code\":-4048")) {
+                    log.warn("❌ Cannot change margin type: open position exists for symbol={}, isolated={}", symbol, isolated);
+                    return false;
+                }
+            }
+            log.error("❌ Failed to set margin type: symbol={}, isolated={}, error={}", symbol, isolated, message, e);
+            return false;
+        }
+    }
 
     @Override
     public String getAccountInfo() {
@@ -32,10 +119,8 @@ public class BinanceServiceImpl implements BinanceService {
 
             log.info("Getting account info from: {}", url);
 
-            UMFuturesClientImpl client = new UMFuturesClientImpl(AppConfig.API_KEY, AppConfig.SECRET_KEY, AppConfig.BINANCE_URL);
-
             LinkedHashMap<String, Object> parameters = new LinkedHashMap<>();
-            String result = client.account().accountInformation(parameters);
+            String result = umFuturesClient.account().accountInformation(parameters);
 
             log.info("Account info retrieved successfully");
             return result;

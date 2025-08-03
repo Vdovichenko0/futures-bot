@@ -24,7 +24,7 @@ public class OrderServiceImpl implements OrderService{
     private final OrderRepository orderRepository;
     private final ObjectMapper objectMapper;
 
-    @Scheduled(initialDelay = 30_000)
+//    @Scheduled(initialDelay = 30_000)
     @Transactional
     public void init() {
         try {

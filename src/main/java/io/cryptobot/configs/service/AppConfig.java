@@ -1,11 +1,14 @@
 package io.cryptobot.configs.service;
 
 import com.binance.connector.futures.client.impl.UMFuturesClientImpl;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -16,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 
 @Slf4j
 @Component
@@ -39,7 +43,10 @@ public class AppConfig {
     public static String API_KEY;
     public static String SECRET_KEY;
 
-    private UMFuturesClientImpl futuresClient;
+    @Bean
+    public UMFuturesClientImpl umFuturesClient() {
+        return new UMFuturesClientImpl(apiKey, secretKey, binanceUrl);
+    }
 
     @PostConstruct
     public void init() {
@@ -51,7 +58,6 @@ public class AppConfig {
         log.info("BINANCE_WS_URL {}", BINANCE_WS_URL);
 
         try {
-            futuresClient = new UMFuturesClientImpl(API_KEY, SECRET_KEY, BINANCE_URL);
             enableHedgeMode();
         } catch (Exception e) {
             log.error("Failed to initialize futures client or enable hedge model", e);

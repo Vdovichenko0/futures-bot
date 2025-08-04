@@ -127,7 +127,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
 
     @Override
     @Transactional
-    @Scheduled(fixedRate = 600_000)
+    @Scheduled(initialDelay = 10_000, fixedRate = 600_000)
     public void scheduledUpdateSizes() {
         List<TradePlan> tradePlans = repository.findAll();
         if (tradePlans.isEmpty()) {
@@ -170,7 +170,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
 
     @Override
     @Transactional
-    @Scheduled(fixedRate = 700_000)
+    @Scheduled(initialDelay = 10_000, fixedRate = 700_000)
     public void scheduledSendRequestUpdateLeverage() {
         List<TradePlan> tradePlans = repository.findAll();
         if (tradePlans.isEmpty()) {
@@ -187,6 +187,5 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
 
         }
     }
-
 
 }

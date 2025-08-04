@@ -30,7 +30,7 @@ public class TradePlanHelper {
         validateLeverage(dto.getLeverage());
     }
 
-    private static void validateSymbol(String symbol) {
+    public static void validateSymbol(String symbol) {
         if (symbol == null || symbol.trim().isEmpty()) {
             throw new IllegalArgumentException("Symbol cannot be null or empty");
         }
@@ -40,7 +40,7 @@ public class TradePlanHelper {
         }
     }
 
-    private static void validateMetrics(TradeMetrics metrics) {
+    public static void validateMetrics(TradeMetrics metrics) {
         if (metrics == null) {
             throw new IllegalArgumentException("TradeMetrics cannot be null");
         }
@@ -52,7 +52,7 @@ public class TradePlanHelper {
         validateMetricValue(metrics.getLongShortRatio(), "longShortRatio", -100, 100);
     }
 
-    private static void validateMetricValue(BigDecimal value, String metricName, int min, int max) {
+    public static void validateMetricValue(BigDecimal value, String metricName, int min, int max) {
         if (value == null) {
             throw new IllegalArgumentException(metricName + " cannot be null");
         }
@@ -62,7 +62,7 @@ public class TradePlanHelper {
         }
     }
 
-    private static void validateAmountPerTrade(BigDecimal amountPerTrade) {
+    public static void validateAmountPerTrade(BigDecimal amountPerTrade) {
         if (amountPerTrade == null) {
             throw new IllegalArgumentException("AmountPerTrade cannot be null");
         }
@@ -73,7 +73,7 @@ public class TradePlanHelper {
         }
     }
 
-    private static void validateLeverage(int leverage) {
+    public static void validateLeverage(int leverage) {
         if (leverage < 1 || leverage > 125) {
             throw new IllegalArgumentException("Leverage must be between 1 and 125");
         }

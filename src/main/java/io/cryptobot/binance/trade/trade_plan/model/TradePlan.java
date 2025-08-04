@@ -29,7 +29,7 @@ public class TradePlan {
     private Boolean active; //trade open or close - in work
     private Boolean close; // symbols open or closed, if closed don't work with this pair
 
-    private String currentCycleId;
+    private String currentSessionId;
 
     @CreatedDate
     private LocalDateTime createdTime;
@@ -54,16 +54,15 @@ public class TradePlan {
         sizes = sizeModel;
     }
 
-    //when create new session trade, put new id + need to lock plan
-    public void putCurrentSessionId(String cycle){
-        currentCycleId = cycle;
-    }
-
     //update leverage(плечо)
     public void putLeverage(int lev){
         leverage = lev;
     }
 
+    //update amount per trade
+    public void updateAmount(BigDecimal amount){
+        amountPerTrade = amount;
+    }
     //when close session get profit
     public void addProfit(BigDecimal profit){
         pnl = pnl.add(profit).stripTrailingZeros();
@@ -71,13 +70,13 @@ public class TradePlan {
 
     //open plan when session finished or cancelled
     public void openActive(){
-        currentCycleId = "FREE"; //todo its ok or change to null
+        currentSessionId = null; //todo its ok or change to null -"FREE"
         active = false;
     }
 
     //when create new session trade, put new id + need to lock plan
-    public void closeActive(String cycle){
-        currentCycleId = cycle;
+    public void closeActive(String session){
+        currentSessionId = session;
         active = true;
     }
 

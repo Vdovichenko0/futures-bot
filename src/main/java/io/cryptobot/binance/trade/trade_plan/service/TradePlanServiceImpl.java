@@ -33,7 +33,7 @@ public class TradePlanServiceImpl implements TradePlanService{
 
         if (repository.existsById(dto.getSymbol())) throw new IllegalArgumentException("Plan already exists.");
         binanceService.setLeverage(dto.getSymbol(),dto.getLeverage());
-        binanceService.setMarginType(dto.getSymbol(), true); //params.put("marginType", isolated ? "ISOLATED" : "CROSSED"); //todo
+        binanceService.setMarginType(dto.getSymbol(), false); //params.put("marginType", isolated ? "ISOLATED" : "CROSSED");
         SizeModel sizeModel = SymbolHelper.getSizeModel(dto.getSymbol());
         TradePlan plan = new TradePlan();
         plan.onCreate(dto, sizeModel);

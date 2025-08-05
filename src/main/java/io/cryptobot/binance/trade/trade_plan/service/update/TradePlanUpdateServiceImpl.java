@@ -6,6 +6,7 @@ import io.cryptobot.binance.trade.trade_plan.dao.TradePlanRepository;
 import io.cryptobot.binance.trade.trade_plan.helper.TradePlanHelper;
 import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
+import io.cryptobot.binance.trade.trade_plan.service.cache.TradePlanCacheManager;
 import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
 import io.cryptobot.configs.locks.TradePlanLockRegistry;
 import io.cryptobot.helpers.SymbolHelper;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
@@ -29,6 +31,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
     private final TradePlanRepository repository;
     private final BinanceService binanceService;
     private final TradePlanLockRegistry lockRegistry;
+    private final TradePlanCacheManager cacheManager;
 
     @Override
     @Transactional
@@ -39,6 +42,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         plan.putLeverage(leverage);
         binanceService.setLeverage(idPlan, leverage);
         repository.save(plan);
+        cacheManager.evictPlanAndListCaches(idPlan);
         return plan;
     }
 
@@ -50,6 +54,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         TradePlan plan = tradePlanGetService.getPlan(idPlan);
         plan.updateAmount(amount);
         repository.save(plan);
+        cacheManager.evictPlanAndListCaches(idPlan);
         return plan;
     }
 
@@ -60,6 +65,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         TradePlan plan = tradePlanGetService.getPlan(idPlan);
         plan.addProfit(profit);
         repository.save(plan);
+        cacheManager.evictPlanAndListCaches(idPlan);
     }
 
     @Override
@@ -69,6 +75,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         TradePlan plan = tradePlanGetService.getPlan(idPlan);
         plan.openPlan();
         repository.save(plan);
+        cacheManager.evictPlanAndListCaches(idPlan);
     }
 
     @Override
@@ -81,6 +88,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         }
         plan.closePlan();
         repository.save(plan);
+        cacheManager.evictPlanAndListCaches(idPlan);
     }
 
     @Override
@@ -92,6 +100,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         TradePlan plan = tradePlanGetService.getPlan(idPlan);
         plan.closeActive(idNewSession);
         repository.save(plan);
+        cacheManager.evictPlanAndListCaches(idPlan);
     }
 
     @Override
@@ -101,6 +110,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         TradePlan plan = tradePlanGetService.getPlan(idPlan);
         plan.openActive();
         repository.save(plan);
+        cacheManager.evictPlanAndListCaches(idPlan);
     }
 
     @Override
@@ -111,6 +121,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         TradePlan plan = tradePlanGetService.getPlan(idPlan);
         plan.getMetrics().updateImbalance(imb);
         repository.save(plan);
+        cacheManager.evictPlanAndListCaches(idPlan);
         return plan;
     }
 
@@ -122,12 +133,13 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         TradePlan plan = tradePlanGetService.getPlan(idPlan);
         plan.getMetrics().updateRatio(ratio);
         repository.save(plan);
+        cacheManager.evictPlanAndListCaches(idPlan);
         return plan;
     }
 
     @Override
     @Transactional
-    @Scheduled(initialDelay = 10_000, fixedRate = 600_000)
+    @Scheduled(initialDelay = 10_000, fixedRate = 2, timeUnit = TimeUnit.HOURS)
     public void scheduledUpdateSizes() {
         List<TradePlan> tradePlans = repository.findAll();
         if (tradePlans.isEmpty()) {
@@ -162,6 +174,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
             if (!toSave.isEmpty()) {
                 log.info("updates trades {}", toSave.size());
                 repository.saveAll(toSave);
+                cacheManager.evictAllTradePlanCaches();
             }
         } finally {
             locks.forEach(ReentrantLock::unlock);
@@ -170,7 +183,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
 
     @Override
     @Transactional
-    @Scheduled(initialDelay = 10_000, fixedRate = 700_000)
+    @Scheduled(initialDelay = 10_000, fixedRate = 6, timeUnit = TimeUnit.HOURS)
     public void scheduledSendRequestUpdateLeverage() {
         List<TradePlan> tradePlans = repository.findAll();
         if (tradePlans.isEmpty()) {

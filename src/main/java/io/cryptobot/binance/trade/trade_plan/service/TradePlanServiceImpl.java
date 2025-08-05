@@ -6,6 +6,7 @@ import io.cryptobot.binance.trade.trade_plan.dto.TradePlanCreateDto;
 import io.cryptobot.binance.trade.trade_plan.helper.TradePlanHelper;
 import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
+import io.cryptobot.binance.trade.trade_plan.service.cache.TradePlanCacheManager;
 import io.cryptobot.configs.locks.TradePlanLockRegistry;
 import io.cryptobot.helpers.SymbolHelper;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class TradePlanServiceImpl implements TradePlanService{
     private final TradePlanLockRegistry lockRegistry;
     private final TradePlanRepository repository;
     private final BinanceService binanceService;
+    private final TradePlanCacheManager cacheManager;
 
     @Override
     @Transactional
@@ -39,6 +41,10 @@ public class TradePlanServiceImpl implements TradePlanService{
         plan.onCreate(dto, sizeModel);
         log.info(plan.toString());
         //todo check + save
-        return repository.save(plan);
+        TradePlan savedPlan = repository.save(plan);
+        
+        cacheManager.evictListCaches();
+        
+        return savedPlan;
     }
 }

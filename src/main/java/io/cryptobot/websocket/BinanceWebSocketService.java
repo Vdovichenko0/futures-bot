@@ -6,6 +6,7 @@ import com.binance.connector.futures.client.utils.WebSocketCallback;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cryptobot.configs.service.AppConfig;
+import io.cryptobot.helpers.MainHelper;
 import io.cryptobot.market_data.aggTrade.AggTrade;
 import io.cryptobot.market_data.aggTrade.AggTradeMapper;
 import io.cryptobot.market_data.aggTrade.AggTradeService;
@@ -23,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -30,9 +32,8 @@ import java.util.concurrent.Executors;
 @Service
 @RequiredArgsConstructor
 public class BinanceWebSocketService {
-    private static final String SYMBOL = "BTCUSDT";
     private static final String INTERVAL = "1m";
-
+    private final MainHelper mainHelper;
     private WebsocketClient wsClient;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile boolean running = true;
@@ -45,13 +46,19 @@ public class BinanceWebSocketService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public void start() {
-        executor.submit(this::connectWithRetry);
+        List<String> symbols = mainHelper.getSymbolsFromPlans();
+        if (symbols.isEmpty()) {
+            log.warn("No symbols found in trade plans, skipping WebSocket connections");
+            return;
+        }
+        log.info("Starting WebSocket connections for symbols: {}", symbols);
+        executor.submit(() -> connectWithRetry(symbols));
     }
 
-    private void connectWithRetry() {
+    private void connectWithRetry(List<String> symbols) {
         while (running) {
             try {
-                log.info("Attempting websocket connection to Binance Futures for {} kline {}", SYMBOL, INTERVAL);
+                log.info("Attempting websocket connection to Binance Futures for {} symbols", symbols.size());
                 log.info("Using WebSocket URL: {}", AppConfig.BINANCE_WS_URL);
                 
                 // Создаем WebSocket клиент для USDT-M фьючерсов
@@ -92,13 +99,24 @@ public class BinanceWebSocketService {
                     }
                 };
 
-//                wsClient.klineStream(SYMBOL, INTERVAL, callback);
-//                wsClient.symbolTicker(SYMBOL, callback);
-//                wsClient.aggTradeStream(SYMBOL, callback);
-//                wsClient.diffDepthStream(SYMBOL,250, callback); //100,250,500
+                // Подключаемся ко всем символам
+                for (String symbol : symbols) {
+                    String formattedSymbol = symbol.toUpperCase();
+                    try {
+                        log.info("Connecting to streams for symbol: {}", formattedSymbol);
+                        
+                        wsClient.klineStream(formattedSymbol, INTERVAL, callback);
+                        wsClient.symbolTicker(formattedSymbol, callback);
+                        wsClient.aggTradeStream(formattedSymbol, callback);
+                        wsClient.diffDepthStream(formattedSymbol, 500, callback); //100,250,500
+                        
+                        log.info("Successfully connected to streams for symbol: {}", formattedSymbol);
+                    } catch (Exception e) {
+                        log.error("Failed to connect to streams for symbol {}: {}", formattedSymbol, e.getMessage());
+                    }
+                }
 
-
-                log.info("Successfully connected to Binance WebSocket for kline data");
+                log.info("Successfully connected to Binance WebSocket for {} symbols", symbols.size());
                 
                 while (running) {
                     Thread.sleep(1000);

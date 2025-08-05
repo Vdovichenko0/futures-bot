@@ -6,7 +6,6 @@ import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 @Getter
@@ -16,14 +15,31 @@ import java.util.concurrent.ConcurrentSkipListMap;
 @AllArgsConstructor
 @ToString
 public class DepthModel {
-    private long lastUpdateId;
-//    private final Map<Double, Double> bids = new ConcurrentHashMap<>();
-//    private final Map<Double, Double> asks = new ConcurrentHashMap<>();
+    private static final int MAX_LEVELS = 100;
 
-    // bids: по убыванию цены (лучший bid — первый)
-    private final NavigableMap<BigDecimal, BigDecimal> bids = new ConcurrentSkipListMap<>(Comparator.reverseOrder());
-    // asks: по возрастанию цены (лучший ask — первый)
-    private final NavigableMap<BigDecimal, BigDecimal> asks = new ConcurrentSkipListMap<>();
+    private long lastUpdateId;
+
+    private final NavigableMap<BigDecimal, BigDecimal> bids = new ConcurrentSkipListMap<BigDecimal, BigDecimal>(Comparator.reverseOrder()) {
+        @Override
+        public BigDecimal put(BigDecimal key, BigDecimal value) {
+            BigDecimal result = super.put(key, value);
+            while (size() > MAX_LEVELS) {
+                pollLastEntry();
+            }
+            return result;
+        }
+    };
+
+    private final NavigableMap<BigDecimal, BigDecimal> asks = new ConcurrentSkipListMap<BigDecimal, BigDecimal>() {
+        @Override
+        public BigDecimal put(BigDecimal key, BigDecimal value) {
+            BigDecimal result = super.put(key, value);
+            while (size() > MAX_LEVELS) {
+                pollLastEntry();
+            }
+            return result;
+        }
+    };
 
     public void updateBids(Map<BigDecimal, BigDecimal> updates) {
         updates.forEach((price, quantity) -> {
@@ -45,4 +61,3 @@ public class DepthModel {
         });
     }
 }
-

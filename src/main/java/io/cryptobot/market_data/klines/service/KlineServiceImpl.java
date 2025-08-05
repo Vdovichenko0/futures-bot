@@ -1,8 +1,10 @@
 package io.cryptobot.market_data.klines.service;
 
 import io.cryptobot.binance.BinanceService;
+import io.cryptobot.helpers.MainHelper;
 import io.cryptobot.market_data.klines.enums.IntervalE;
 import io.cryptobot.market_data.klines.model.KlineModel;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,7 +20,7 @@ public class KlineServiceImpl implements KlineService {
     private final BinanceService binanceService;
     // Map<Symbol, Map<Interval, List<KlineModel>>>
     private final Map<String, Map<IntervalE, List<KlineModel>>> klines = new ConcurrentHashMap<>();
-//    private final MainHelper mainHelper;
+    private final MainHelper mainHelper;
 
     @Value("${api.key}")
     private String apiKey;
@@ -91,29 +93,20 @@ public class KlineServiceImpl implements KlineService {
     }
 
     @Override
-//    @PostConstruct
+    @PostConstruct
     public void fetchInitialKlines() {
-//        Map<String, Symbol> symbolsDb = mainHelper.getSymbols();
-//        List<String> symbols = symbolsDb.values().stream()
-//                .map(s->s.getSymbol()+"USDT")
-//                .toList();
-//
-//        List<IntervalE> intervals = Arrays.asList(
-//                IntervalE.ONE_MINUTE,
-//                IntervalE.FIVE_MINUTES,
-//                IntervalE.FIFTEEN_MINUTES,
-//                IntervalE.ONE_HOUR,
-//                IntervalE.FOUR_HOURS,
-//                IntervalE.ONE_DAY
-//        );
-//
-//
-//        symbols.forEach(symbol -> {
-//            intervals.forEach(interval -> {
-//                List<KlineModel> initialKlines = binanceService.getKlines(symbol, interval, 200, apiKey, secretKey);
-////                log.info("symbol {} interval {} size {}", symbol, interval, initialKlines.size());
-//                initialKlines.forEach(this::addKline);
-//            });
-//        });
+        List<String> symbols = mainHelper.getSymbolsFromPlans();
+
+        List<IntervalE> intervals = Arrays.asList(
+                IntervalE.ONE_MINUTE,
+                IntervalE.FIVE_MINUTES
+        );
+
+        symbols.forEach(symbol -> {
+            intervals.forEach(interval -> {
+                List<KlineModel> initialKlines = binanceService.getKlines(symbol, interval, 200);
+                initialKlines.forEach(this::addKline);
+            });
+        });
     }
 }

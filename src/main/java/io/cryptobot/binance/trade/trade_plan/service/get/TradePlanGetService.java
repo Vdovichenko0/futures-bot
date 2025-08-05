@@ -8,4 +8,8 @@ public interface TradePlanGetService {
     TradePlan getPlan(String symbol);
 
     List<TradePlan> getAll();
+
+    List<TradePlan> getAllActiveTrue();
+
+    List<TradePlan> getAllActiveFalse();
 }

@@ -22,6 +22,31 @@ public class CacheConfig {
     public CacheManager cacheManager(Caffeine<Object, Object> caffeine) {
         CaffeineCacheManager cacheManager = new CaffeineCacheManager();
         cacheManager.setCaffeine(caffeine);
+        
+        cacheManager.registerCustomCache("tradePlanGetPlan", 
+            Caffeine.newBuilder()
+                .expireAfterWrite(15, TimeUnit.MINUTES)
+                .maximumSize(100)
+                .build());
+                
+        cacheManager.registerCustomCache("tradePlanGetAll", 
+            Caffeine.newBuilder()
+                .expireAfterWrite(10, TimeUnit.MINUTES)
+                .maximumSize(10)
+                .build());
+                
+        cacheManager.registerCustomCache("tradePlanGetAllActiveTrue", 
+            Caffeine.newBuilder()
+                .expireAfterWrite(10, TimeUnit.MINUTES)
+                .maximumSize(10)
+                .build());
+                
+        cacheManager.registerCustomCache("tradePlanGetAllActiveFalse", 
+            Caffeine.newBuilder()
+                .expireAfterWrite(10, TimeUnit.MINUTES)
+                .maximumSize(10)
+                .build());
+        
         return cacheManager;
     }
 

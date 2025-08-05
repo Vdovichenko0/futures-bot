@@ -11,11 +11,6 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @ToString
 public class TradeMetrics {
-//    private BigDecimal volume24h;
-//    private BigDecimal volume1m;
-    //todo add ema metrics (need more info from Dima)
-//    private BigDecimal ema20;
-//    private BigDecimal ema50;
     private BigDecimal imbalance;
     private BigDecimal longShortRatio;
 

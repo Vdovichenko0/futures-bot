@@ -109,4 +109,16 @@ public class KlineServiceImpl implements KlineService {
             });
         });
     }
+
+    @Override //if added new coin
+    public void addNewKline(String coin) {
+        List<IntervalE> intervals = Arrays.asList(
+                IntervalE.ONE_MINUTE,
+                IntervalE.FIVE_MINUTES
+        );
+        intervals.forEach(interval -> {
+            List<KlineModel> initialKlines = binanceService.getKlines(coin, interval, 200);
+            initialKlines.forEach(this::addKline);
+        });
+    }
 }

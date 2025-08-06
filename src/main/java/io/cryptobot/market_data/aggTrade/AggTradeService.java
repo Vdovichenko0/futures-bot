@@ -6,7 +6,7 @@ public interface AggTradeService {
 
     void addAggTrade(AggTrade aggTrade);
 
-    AggTrade getAggTrade(String coin);
-
     List<AggTrade> getRecentTrades(String coin, int limit);
+
+    void addAggTradeREST(String coin);
 }

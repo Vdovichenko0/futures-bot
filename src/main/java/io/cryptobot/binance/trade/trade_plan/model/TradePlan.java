@@ -38,11 +38,11 @@ public class TradePlan {
     private LocalDateTime dateClose;
 
     //when create plan, set configs and sizes, sizes get in binance by api
-    public void onCreate(TradePlanCreateDto createDto, SizeModel sizeModel){
-        symbol = createDto.getSymbol().toUpperCase();
-        amountPerTrade = createDto.getAmountPerTrade();
-        leverage = createDto.getLeverage();
-        metrics = createDto.getMetrics();
+    public void onCreate(String coin, BigDecimal amount, int lev, TradeMetrics tradeMetrics, SizeModel sizeModel){
+        symbol = coin.toUpperCase();
+        amountPerTrade = amount;
+        leverage = lev;
+        metrics = tradeMetrics;
         sizes = sizeModel;
         active = false;
         close = false;

@@ -24,4 +24,6 @@ public interface KlineService {
 
     void fetchInitialKlines();
 
+    void addNewKline(String coin);
+
 }

@@ -1,5 +1,6 @@
 package io.cryptobot.binance.trade.trade_plan.controller;
 
+import io.cryptobot.binance.trade.trade_plan.dto.TradeMetricsDto;
 import io.cryptobot.binance.trade.trade_plan.dto.TradePlanCreateDto;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.TradePlanService;
@@ -27,6 +28,18 @@ public class TradePlanController {
     @ResponseStatus(HttpStatus.CREATED)
     public TradePlan create(@RequestBody TradePlanCreateDto dto) {
         return tradePlanService.createPlan(dto);
+    }
+
+    @PostMapping("/create/many")
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<String> createManyPlans(@RequestBody List<TradePlanCreateDto> dtos){
+        return tradePlanService.createManyPlans(dtos);
+    }
+
+    @PutMapping("/{idPlan}/update/metrics")
+    @ResponseStatus(HttpStatus.OK)
+    public TradePlan updateMetrics(@PathVariable String idPlan,@RequestBody TradeMetricsDto dto){
+        return tradePlanUpdateService.updateMetrics(idPlan, dto);
     }
 
     @GetMapping("/{symbol}")
@@ -63,17 +76,5 @@ public class TradePlanController {
     @ResponseStatus(HttpStatus.OK)
     public void closePlan(@PathVariable String idPlan) {
         tradePlanUpdateService.closePlan(idPlan);
-    }
-
-    @PutMapping("/{idPlan}/imbalance")
-    @ResponseStatus(HttpStatus.OK)
-    public TradePlan updateImbalance(@PathVariable String idPlan, @RequestParam BigDecimal imb) {
-        return tradePlanUpdateService.updateImbalance(idPlan, imb);
-    }
-
-    @PutMapping("/{idPlan}/ratio")
-    @ResponseStatus(HttpStatus.OK)
-    public TradePlan updateRatio(@PathVariable String idPlan, @RequestParam BigDecimal ratio) {
-        return tradePlanUpdateService.updateRatio(idPlan, ratio);
     }
 }

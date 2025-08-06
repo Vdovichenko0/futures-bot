@@ -19,17 +19,19 @@ public class OrderHelper {
         // Строковые поля
         changed |= setIfDifferent(existing::getSymbol, existing::setSymbol, updated.getSymbol(), "symbol", changes);
         changed |= setIfDifferent(existing::getClientOrderId, existing::setClientOrderId, updated.getClientOrderId(), "clientOrderId", changes);
-        changed |= setIfDifferent(existing::getSide, existing::setSide, updated.getSide(), "side", changes);
         changed |= setIfDifferent(existing::getOrderType, existing::setOrderType, updated.getOrderType(), "orderType", changes);
         changed |= setIfDifferent(existing::getTimeInForce, existing::setTimeInForce, updated.getTimeInForce(), "timeInForce", changes);
         changed |= setIfDifferent(existing::getExecutionType, existing::setExecutionType, updated.getExecutionType(), "executionType", changes);
-        changed |= setIfDifferent(existing::getOrderStatus, existing::setOrderStatus, updated.getOrderStatus(), "orderStatus", changes);
         changed |= setIfDifferent(existing::getCommissionAsset, existing::setCommissionAsset, updated.getCommissionAsset(), "commissionAsset", changes);
         changed |= setIfDifferent(existing::getWorkingType, existing::setWorkingType, updated.getWorkingType(), "workingType", changes);
         changed |= setIfDifferent(existing::getOriginalType, existing::setOriginalType, updated.getOriginalType(), "originalType", changes);
         changed |= setIfDifferent(existing::getPositionSide, existing::setPositionSide, updated.getPositionSide(), "positionSide", changes);
         changed |= setIfDifferent(existing::getOriginalResponseType, existing::setOriginalResponseType, updated.getOriginalResponseType(), "originalResponseType", changes);
         changed |= setIfDifferent(existing::getPositionMode, existing::setPositionMode, updated.getPositionMode(), "positionMode", changes);
+
+        // Enum поля
+        changed |= setIfDifferent(existing::getSide, existing::setSide, updated.getSide(), "side", changes);
+        changed |= setIfDifferent(existing::getOrderStatus, existing::setOrderStatus, updated.getOrderStatus(), "orderStatus", changes);
 
         // BigDecimal поля
         changed |= setIfDifferent(existing::getQuantity, existing::setQuantity, updated.getQuantity(), "quantity", changes);
@@ -96,6 +98,18 @@ public class OrderHelper {
      * Сравнивает и устанавливает строковое значение если оно отличается
      */
     private static boolean setIfDifferent(Supplier<String> getter, Consumer<String> setter, String newValue, String fieldName, StringBuilder log) {
+        if (!java.util.Objects.equals(getter.get(), newValue)) {
+            setter.accept(newValue);
+            log.append(fieldName).append(", ");
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Сравнивает и устанавливает enum значение если оно отличается
+     */
+    private static <T extends Enum<T>> boolean setIfDifferent(Supplier<T> getter, Consumer<T> setter, T newValue, String fieldName, StringBuilder log) {
         if (!java.util.Objects.equals(getter.get(), newValue)) {
             setter.accept(newValue);
             log.append(fieldName).append(", ");

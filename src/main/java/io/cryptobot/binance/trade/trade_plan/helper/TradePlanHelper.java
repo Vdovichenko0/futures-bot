@@ -1,5 +1,6 @@
 package io.cryptobot.binance.trade.trade_plan.helper;
 
+import io.cryptobot.binance.trade.trade_plan.dto.TradeMetricsDto;
 import io.cryptobot.binance.trade.trade_plan.dto.TradePlanCreateDto;
 import io.cryptobot.binance.trade.trade_plan.model.TradeMetrics;
 
@@ -40,25 +41,46 @@ public class TradePlanHelper {
         }
     }
 
-    public static void validateMetrics(TradeMetrics metrics) {
-        if (metrics == null) {
-            throw new IllegalArgumentException("TradeMetrics cannot be null");
+    public static void validateMetrics(TradeMetricsDto dto) {
+        if (dto == null) {
+            throw new IllegalArgumentException("TradeMetricsDto cannot be null");
         }
 
-        // Validate imbalance (-100 to 100)
-        validateMetricValue(metrics.getImbalance(), "imbalance", -100, 100);
+        validatePercentage(dto.getMinLongPct(), "minLongPct");
+        validatePercentage(dto.getMinShortPct(), "minShortPct");
 
-        // Validate longShortRatio (-100 to 100)
-        validateMetricValue(metrics.getLongShortRatio(), "longShortRatio", -100, 100);
+        validateRatioRange(dto.getMinImbalanceLong(), 0.0, 1.0, "minImbalanceLong");
+        validateRatioRange(dto.getMaxImbalanceShort(), 0.0, 1.0, "maxImbalanceShort");
+
+        validatePositiveDouble(dto.getEmaSensitivity(), "emaSensitivity", 0.0, 0.1);
+        validatePositiveDouble(dto.getVolRatioThreshold(), "volRatioThreshold", 0.0, 100.0);
+
+        validatePositiveInt(dto.getVolWindowSec(), "volWindowSec", 1, 600);
+        validatePositiveInt(dto.getDepthLevels(), "depthLevels", 1, 500);
     }
 
-    public static void validateMetricValue(BigDecimal value, String metricName, int min, int max) {
-        if (value == null) {
-            throw new IllegalArgumentException(metricName + " cannot be null");
+    public static void validatePercentage(double value, String name) {
+        if (Double.isNaN(value) || Double.isInfinite(value) || value < 0 || value > 100) {
+            throw new IllegalArgumentException(name + " must be between 0 and 100");
         }
+    }
 
-        if (value.compareTo(BigDecimal.valueOf(min)) < 0 || value.compareTo(BigDecimal.valueOf(max)) > 0) {
-            throw new IllegalArgumentException(metricName + " must be between " + min + " and " + max);
+
+    public static void validateRatioRange(double value, double min, double max, String name) {
+        if (Double.isNaN(value) || Double.isInfinite(value) || value < min || value > max) {
+            throw new IllegalArgumentException(name + " must be between " + min + " and " + max);
+        }
+    }
+
+    public static void validatePositiveDouble(double value, String name, double min, double max) {
+        if (Double.isNaN(value) || Double.isInfinite(value) || value < min || value > max) {
+            throw new IllegalArgumentException(name + " must be between " + min + " and " + max);
+        }
+    }
+
+    public static void validatePositiveInt(int value, String name, int min, int max) {
+        if (value < min || value > max) {
+            throw new IllegalArgumentException(name + " must be between " + min + " and " + max);
         }
     }
 

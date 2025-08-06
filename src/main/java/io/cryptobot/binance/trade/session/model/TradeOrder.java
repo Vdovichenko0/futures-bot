@@ -3,7 +3,9 @@ package io.cryptobot.binance.trade.session.model;
 import io.cryptobot.binance.order.enums.OrderPurpose;
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.enums.OrderType;
 import io.cryptobot.binance.trade.session.enums.SessionMode;
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -19,6 +21,7 @@ public class TradeOrder {
     private Long orderId; // binance id
     private String creationContext;
     private OrderPurpose purpose; // ENTRY, HEDGE_OPEN, HEDGE_CLOSE, TRAILING_CLOSE, FORCE_CLOSE
+    private TradingDirection direction;
 
     // main info
     private String symbol;
@@ -42,4 +45,17 @@ public class TradeOrder {
 
     // Временные метки
     private LocalDateTime orderTime; // время создания ордера
+
+    @Setter
+    private BigDecimal pnlHigh = BigDecimal.ZERO;
+    @Setter
+    private Boolean trailingActive = false;
+
+    // Поля для отслеживания изменений PnL
+    @Setter
+    private BigDecimal basePnl; // базовая точка для отслеживания
+    @Setter
+    private BigDecimal maxChangePnl; // максимальное улучшение от базовой точки
+
+    //todo oncreate
 }

@@ -1,5 +1,7 @@
 package io.cryptobot.binance.order.model;
 
+import io.cryptobot.binance.order.enums.OrderSide;
+import io.cryptobot.binance.order.enums.OrderStatus;
 import lombok.*;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -19,7 +21,7 @@ public class Order {
 
     private String symbol;                  // s
     private String clientOrderId;           // c
-    private String side;                    // S (BUY/SELL)
+    private OrderSide side;                 // S (BUY/SELL)
     private String orderType;               // o (MARKET, LIMIT...)
     private String timeInForce;             // f (GTC и т.п.)
     private BigDecimal quantity;            // q
@@ -27,7 +29,7 @@ public class Order {
     private BigDecimal averagePrice;        // ap
     private BigDecimal stopPrice;           // sp
     private String executionType;           // x (TRADE, NEW...)
-    private String orderStatus;             // X (FILLED, NEW...)
+    private OrderStatus orderStatus;        // X (FILLED, NEW...)
     private BigDecimal lastFilledQty;       // l
     private BigDecimal cumulativeFilledQty; // z
     private BigDecimal lastFilledPrice;     // L

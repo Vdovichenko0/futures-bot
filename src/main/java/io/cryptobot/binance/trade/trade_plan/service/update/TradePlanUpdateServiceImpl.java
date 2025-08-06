@@ -3,8 +3,10 @@ package io.cryptobot.binance.trade.trade_plan.service.update;
 import io.cryptobot.binance.BinanceService;
 import io.cryptobot.binance.model.LeverageMarginInfo;
 import io.cryptobot.binance.trade.trade_plan.dao.TradePlanRepository;
+import io.cryptobot.binance.trade.trade_plan.dto.TradeMetricsDto;
 import io.cryptobot.binance.trade.trade_plan.helper.TradePlanHelper;
 import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
+import io.cryptobot.binance.trade.trade_plan.model.TradeMetrics;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.cache.TradePlanCacheManager;
 import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
@@ -61,6 +63,62 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
     @Override
     @Transactional
     @WithLock(registry = LockType.PLAN, keyParam = "idPlan")
+    public TradePlan updateMetrics(String idPlan, TradeMetricsDto dto) {
+        if (dto == null) {
+            throw new IllegalArgumentException("Request DTO cannot be null");
+        }
+
+        TradePlan plan = tradePlanGetService.getPlan(idPlan);
+        TradeMetrics metricsActual = plan.getMetrics();
+        boolean updated = false;
+        if (dto.getMinLongPct()!=null){
+            TradePlanHelper.validatePercentage(dto.getMinLongPct(), "minLongPct");
+            metricsActual.setMinLongPct(dto.getMinLongPct());
+            updated = true;
+        }
+        if (dto.getMinShortPct()!=null){
+            TradePlanHelper.validatePercentage(dto.getMinShortPct(), "minShortPct");
+            metricsActual.setMinShortPct(dto.getMinShortPct());
+            updated = true;
+        }
+        if (dto.getMinImbalanceLong()!=null){
+            TradePlanHelper.validateRatioRange(dto.getMinImbalanceLong(), 0.0, 1.0, "minImbalanceLong");
+            metricsActual.setMinImbalanceLong(dto.getMinImbalanceLong());
+            updated = true;
+        }
+        if (dto.getMaxImbalanceShort()!=null){
+            TradePlanHelper.validateRatioRange(dto.getMaxImbalanceShort(), 0.0, 1.0, "maxImbalanceShort");
+            metricsActual.setMaxImbalanceShort(dto.getMaxImbalanceShort());
+            updated = true;
+        }
+        if (dto.getEmaSensitivity()!=null){
+            TradePlanHelper.validatePositiveDouble(dto.getEmaSensitivity(), "emaSensitivity", 0.0, 1.0);
+            metricsActual.setEmaSensitivity(dto.getEmaSensitivity());
+            updated = true;
+        }
+        if (dto.getVolRatioThreshold()!=null){
+            TradePlanHelper.validatePositiveDouble(dto.getVolRatioThreshold(), "volRatioThreshold", 0.0, 100.0);
+            metricsActual.setVolRatioThreshold(dto.getVolRatioThreshold());
+            updated = true;
+        }
+        if (dto.getVolWindowSec() > 0) {
+            TradePlanHelper.validatePositiveInt(dto.getVolWindowSec(), "volWindowSec", 1, 600);
+            metricsActual.setVolWindowSec(dto.getVolWindowSec());
+            updated = true;
+        }
+        if (dto.getDepthLevels() > 0) {
+            TradePlanHelper.validatePositiveInt(dto.getDepthLevels(), "depthLevels", 1, 500);
+            metricsActual.setDepthLevels(dto.getDepthLevels());
+            updated = true;
+        }
+
+        if (updated) repository.save(plan);
+        return plan;
+    }
+
+    @Override
+    @Transactional
+    @WithLock(registry = LockType.PLAN, keyParam = "idPlan")
     public void addProfit(String idPlan, BigDecimal profit) {
         TradePlan plan = tradePlanGetService.getPlan(idPlan);
         plan.addProfit(profit);
@@ -111,30 +169,6 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
         plan.openActive();
         repository.save(plan);
         cacheManager.evictPlanAndListCaches(idPlan);
-    }
-
-    @Override
-    @Transactional
-    @WithLock(registry = LockType.PLAN, keyParam = "idPlan")
-    public TradePlan updateImbalance(String idPlan, BigDecimal imb) {
-        TradePlanHelper.validateMetricValue(imb, "imbalance", -100, 100);
-        TradePlan plan = tradePlanGetService.getPlan(idPlan);
-        plan.getMetrics().updateImbalance(imb);
-        repository.save(plan);
-        cacheManager.evictPlanAndListCaches(idPlan);
-        return plan;
-    }
-
-    @Override
-    @Transactional
-    @WithLock(registry = LockType.PLAN, keyParam = "idPlan")
-    public TradePlan updateRatio(String idPlan, BigDecimal ratio) {
-        TradePlanHelper.validateMetricValue(ratio, "ratio", -100, 100);
-        TradePlan plan = tradePlanGetService.getPlan(idPlan);
-        plan.getMetrics().updateRatio(ratio);
-        repository.save(plan);
-        cacheManager.evictPlanAndListCaches(idPlan);
-        return plan;
     }
 
     @Override

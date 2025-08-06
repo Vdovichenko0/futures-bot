@@ -1,4 +1,4 @@
-package io.cryptobot.binance.trade.trade_plan.model;
+package io.cryptobot.binance.trade.trade_plan.dto;
 
 import lombok.*;
 
@@ -8,7 +8,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @ToString
-public class TradeMetrics {
+public class TradeMetricsDto {
     private Double minLongPct;
     private Double minShortPct;
     private Double minImbalanceLong;

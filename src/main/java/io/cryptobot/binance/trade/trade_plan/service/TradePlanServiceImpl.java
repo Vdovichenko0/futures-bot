@@ -5,15 +5,20 @@ import io.cryptobot.binance.trade.trade_plan.dao.TradePlanRepository;
 import io.cryptobot.binance.trade.trade_plan.dto.TradePlanCreateDto;
 import io.cryptobot.binance.trade.trade_plan.helper.TradePlanHelper;
 import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
+import io.cryptobot.binance.trade.trade_plan.model.TradeMetrics;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.cache.TradePlanCacheManager;
 import io.cryptobot.configs.locks.TradePlanLockRegistry;
 import io.cryptobot.helpers.SymbolHelper;
+import io.cryptobot.utils.MarketDataSubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -24,7 +29,7 @@ public class TradePlanServiceImpl implements TradePlanService{
     private final TradePlanRepository repository;
     private final BinanceService binanceService;
     private final TradePlanCacheManager cacheManager;
-
+    private  final MarketDataSubscriptionService dataSubscriptionService;
     @Override
     @Transactional
     public TradePlan createPlan(TradePlanCreateDto dto) {
@@ -37,14 +42,33 @@ public class TradePlanServiceImpl implements TradePlanService{
         binanceService.setLeverage(dto.getSymbol(),dto.getLeverage());
         binanceService.setMarginType(dto.getSymbol(), false); //params.put("marginType", isolated ? "ISOLATED" : "CROSSED");
         SizeModel sizeModel = SymbolHelper.getSizeModel(dto.getSymbol());
+        TradeMetrics metrics = modelMapper.map(dto.getMetrics(), TradeMetrics.class);
         TradePlan plan = new TradePlan();
-        plan.onCreate(dto, sizeModel);
+        plan.onCreate(dto.getSymbol(), dto.getAmountPerTrade(), dto.getLeverage(), metrics, sizeModel);
         log.info(plan.toString());
         //todo check + save
+        // update websocket etc. all cycle of klines/depth/aggTrade/ticker24h
         TradePlan savedPlan = repository.save(plan);
         
         cacheManager.evictListCaches();
-        
+        dataSubscriptionService.subscribe(dto.getSymbol());
         return savedPlan;
+    }
+
+    @Override
+    @Transactional
+    public List<String> createManyPlans(List<TradePlanCreateDto> dtos) {
+            List<TradePlan> created = new ArrayList<>();
+            for (TradePlanCreateDto dto: dtos ) {
+                try {
+                    TradePlan newPlan = createPlan(dto);
+                    created.add(newPlan);
+                } catch (Exception e){
+                    log.error("Error creating {}", dto.getSymbol());
+                }
+            }
+        return created.stream()
+                .map(TradePlan::getSymbol)
+                .toList();
     }
 }

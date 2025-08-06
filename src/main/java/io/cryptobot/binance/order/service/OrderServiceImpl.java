@@ -4,12 +4,13 @@ import com.binance.connector.futures.client.impl.UMFuturesClientImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cryptobot.binance.order.dao.OrderRepository;
+import io.cryptobot.binance.order.enums.OrderSide;
+import io.cryptobot.binance.order.enums.OrderStatus;
 import io.cryptobot.binance.order.mapper.OrderMapper;
 import io.cryptobot.binance.order.model.Order;
 import io.cryptobot.configs.service.AppConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,7 +31,7 @@ public class OrderServiceImpl implements OrderService{
         try {
             log.info("🚀 Starting order creation and closure test...");
             
-            Order order = createOrder("BTCUSDT", 0.001, "BUY", true);
+            Order order = createOrder("BTCUSDT", 0.001, OrderSide.BUY, true);
             if (order == null) {
                 log.error("❌ Failed to create order");
                 return;
@@ -42,8 +43,8 @@ public class OrderServiceImpl implements OrderService{
             Thread.sleep(60_000);
 
             Order updatedOrder = getOrderFromBinance(order.getOrderId(), order.getSymbol());
-            if (updatedOrder != null && !updatedOrder.getOrderStatus().equalsIgnoreCase("NEW")) {
-                Order orderHandge = createOrder("BTCUSDT", 0.001, "SELL", true);
+            if (updatedOrder != null && !updatedOrder.getOrderStatus().equals(OrderStatus.NEW)) {
+                Order orderHandge = createOrder("BTCUSDT", 0.001, OrderSide.SELL, true);
                 log.info("📊 Updated order info: {}", updatedOrder);
 //                Order closedOrder = closeOrder(updatedOrder);
                 if (orderHandge != null) {
@@ -122,7 +123,7 @@ public class OrderServiceImpl implements OrderService{
 
     @Override
     @Transactional
-    public Order createOrder(String symbol, Double amount, String side, Boolean hedgeMode) {
+    public Order createOrder(String symbol, Double amount, OrderSide side, Boolean hedgeMode) {
         try {
             log.info("Creating order: symbol={}, amount={}, side={}, hedgeMode={}", symbol, amount, side, hedgeMode);
 
@@ -130,7 +131,7 @@ public class OrderServiceImpl implements OrderService{
 
             LinkedHashMap<String, Object> parameters = new LinkedHashMap<>();
             parameters.put("symbol", symbol.toUpperCase());
-            parameters.put("side", side.toUpperCase());
+            parameters.put("side", side.toString());
             parameters.put("type", "MARKET");
             parameters.put("quantity", amount);
 //            parameters.put("timeInForce", "GTC"); // Good Till Cancel
@@ -138,7 +139,7 @@ public class OrderServiceImpl implements OrderService{
             if (Boolean.TRUE.equals(hedgeMode)) {
                 // В hedge model нужно явно указывать, какую сторону позицию открываешь
                 // если side == BUY → LONG, если SELL → SHORT
-                String positionSide = "BUY".equalsIgnoreCase(side) ? "LONG" : "SHORT";
+                String positionSide = side.equals(OrderSide.BUY) ? "LONG" : "SHORT";
                 parameters.put("positionSide", positionSide);
             } else {
                 parameters.remove("positionSide");
@@ -174,10 +175,9 @@ public class OrderServiceImpl implements OrderService{
             );
 
             // Проверяем статус ордера
-            if ("NEW".equals(order.getOrderStatus()) || "PARTIALLY_FILLED".equals(order.getOrderStatus())) {
+            if (order.getOrderStatus().equals(OrderStatus.NEW) || order.getOrderStatus().equals(OrderStatus.CANCELLED)) {
                 log.info("Order {} is not fully filled (status: {}), cancelling it", order.getOrderId(), order.getOrderStatus());
-//                return cancelOrder(order);
-                return null; //todo
+                return null;
             }
 
             // Если ордер исполнен, закрываем позицию
@@ -188,11 +188,11 @@ public class OrderServiceImpl implements OrderService{
             }
 
             // Определяем сторону закрытия: если была BUY (лонг) — закрываем SELL, если SELL (шорт) — BUY
-            String closingSide = "BUY".equalsIgnoreCase(order.getSide()) ? "SELL" : "BUY";
+            OrderSide closingSide = order.getSide().equals(OrderSide.BUY) ? OrderSide.SELL : OrderSide.BUY;
 
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", order.getSymbol().toUpperCase());
-            params.put("side", closingSide);
+            params.put("side", closingSide.toString());
             params.put("type", "MARKET");
             params.put("quantity", qtyToClose.toPlainString());
 //            params.put("reduceOnly", "true");

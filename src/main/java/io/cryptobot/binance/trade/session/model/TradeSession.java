@@ -1,6 +1,5 @@
 package io.cryptobot.binance.trade.session.model;
 
-import io.cryptobot.binance.order.enums.OrderPurpose;
 import io.cryptobot.binance.order.enums.OrderStatus;
 import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.SessionStatus;
@@ -23,6 +22,7 @@ import java.util.List;
 @Document(collection = "trade-session")
 public class TradeSession {
     @Id
+    @Setter
     private String id;
     private String tradePlan;
 
@@ -168,19 +168,6 @@ public class TradeSession {
         this.hedgeCloseCount = hedgeCloses;
     }
 
-    public void activateTrailing(Long idOrder) {
-        if (!Boolean.TRUE.equals(trailingActive)) {
-            trailingActive = true;
-            trailingActivations++;
-            trailingOrderId = idOrder;
-        }
-    }
-
-    public void deactivateTrailing() {
-        trailingActive = false;
-        trailingOrderId = null;
-    }
-
     public void changeMode(SessionMode newMode) {
         this.currentMode = newMode;
     }
@@ -218,40 +205,12 @@ public class TradeSession {
                 .orElse(null);
     }
 
-    // Методы для анализа состояния
-    public boolean isReadyForHedgeMode() {
-        return SessionMode.SCALPING.equals(currentMode)
-                && pnl.compareTo(new BigDecimal("-0.002")) <= 0; // -0.2%
-    }
-
-    public boolean isReadyForTrailing() {
-        return SessionMode.SCALPING.equals(currentMode)
-                && pnl.compareTo(new BigDecimal("0.0017")) >= 0; // 0.17%
-    }
-
-    public boolean canCloseProfitablePosition() {
-        return SessionMode.HEDGING.equals(currentMode)
-                && pnl.compareTo(new BigDecimal("0.001")) >= 0; // 0.1%
-    }
-
     public boolean needsForcingMode() {
         return pnl.compareTo(new BigDecimal("-0.005")) < 0; // -0.5%
     }
 
     public boolean isProfitable() {
         return pnl.compareTo(BigDecimal.ZERO) > 0;
-    }
-
-    public boolean hasOpenHedges() {
-        return orders.stream()
-                .anyMatch(o -> io.cryptobot.binance.order.enums.OrderPurpose.HEDGE_OPEN.equals(o.getPurpose())
-                        && io.cryptobot.binance.order.enums.OrderStatus.FILLED.equals(o.getStatus()));
-    }
-
-    public int getOpenPositionsCount() {
-        return (int) orders.stream()
-                .filter(o -> io.cryptobot.binance.order.enums.OrderStatus.FILLED.equals(o.getStatus()))
-                .count();
     }
 
     public boolean isInScalpingMode() {
@@ -269,23 +228,6 @@ public class TradeSession {
     public String getSessionSummary() {
         return String.format("Session %s: %s %s, PnL: %s, Mode: %s, Orders: %d, Positions: %s",
                 id, tradePlan, direction, pnl, currentMode, orders.size(), getPositionState());
-    }
-
-    // Методы для управления состоянием лонг/шорт позиций
-    public void setLongActive(boolean active) {
-        this.activeLong = active;
-    }
-
-    public void setShortActive(boolean active) {
-        this.activeShort = active;
-    }
-
-    public boolean isLongActive() {
-        return activeLong;
-    }
-
-    public boolean isShortActive() {
-        return activeShort;
     }
 
     public boolean hasActivePosition() {
@@ -312,22 +254,9 @@ public class TradeSession {
         this.activeShort = true;
     }
 
-    // Метод для проверки возможности открытия новой позиции (для хеджирования)
-    public boolean canOpenNewPosition() {
-        return !hasBothPositionsActive();
-    }
-
     // Метод для проверки, можно ли открыть хедж
     public boolean canOpenHedge() {
         return hasActivePosition() && !hasBothPositionsActive();
-    }
-
-    // Метод для получения количества активных позиций
-    public int getActivePositionsCount() {
-        int count = 0;
-        if (activeLong) count++;
-        if (activeShort) count++;
-        return count;
     }
 
     // Метод для получения текущего состояния позиций в виде строки

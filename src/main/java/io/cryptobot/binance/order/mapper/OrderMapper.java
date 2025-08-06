@@ -1,6 +1,8 @@
 package io.cryptobot.binance.order.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.cryptobot.binance.order.enums.OrderSide;
+import io.cryptobot.binance.order.enums.OrderStatus;
 import io.cryptobot.binance.order.model.Order;
 
 import java.math.BigDecimal;
@@ -14,7 +16,7 @@ public class OrderMapper {
             return Order.builder()
                     .symbol(node.path("symbol").asText(null))
                     .clientOrderId(node.path("clientOrderId").asText(null))
-                    .side(node.path("side").asText(null))
+                    .side(parseOrderSide(node.path("side").asText(null)))
                     .orderType(node.path("type").asText(null))
                     .timeInForce(node.path("timeInForce").asText(null))
                     .quantity(parseBigDecimal(node, "origQty"))
@@ -24,7 +26,7 @@ public class OrderMapper {
                     .cumulativeFilledQty(parseBigDecimal(node, "executedQty"))
                     .commission(null) // REST-ответ не содержит явной комиссии здесь
                     .commissionAsset(null)
-                    .orderStatus(node.path("status").asText(null)) // FILLED, NEW и т.п.
+                    .orderStatus(parseOrderStatus(node.path("status").asText(null)))
                     .orderId(node.path("orderId").asLong(0))
                     .positionSide(node.path("positionSide").asText(null))
                     .reduceOnly(node.path("reduceOnly").asBoolean(false))
@@ -45,7 +47,7 @@ public class OrderMapper {
             return Order.builder()
                     .symbol(node.path("s").asText(null))
                     .clientOrderId(node.path("c").asText(null))
-                    .side(node.path("S").asText(null))
+                    .side(parseOrderSide(node.path("S").asText(null)))
                     .orderType(node.path("o").asText(null))
                     .timeInForce(node.path("f").asText(null))
                     .quantity(parseBigDecimal(node, "q"))
@@ -53,7 +55,7 @@ public class OrderMapper {
                     .averagePrice(parseBigDecimal(node, "ap"))
                     .stopPrice(parseBigDecimal(node, "sp"))
                     .executionType(node.path("x").asText(null))
-                    .orderStatus(node.path("X").asText(null))
+                    .orderStatus(parseOrderStatus(node.path("X").asText(null)))
                     .orderId(node.path("i").asLong(0))
                     .lastFilledQty(parseBigDecimal(node, "l"))
                     .cumulativeFilledQty(parseBigDecimal(node, "z"))
@@ -91,4 +93,24 @@ public class OrderMapper {
             return null;
         }
     }
+
+    private static OrderSide parseOrderSide(String raw) {
+        if (raw == null) return null;
+        try {
+            return OrderSide.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static OrderStatus parseOrderStatus(String raw) {
+        if (raw == null) return null;
+        try {
+            return OrderStatus.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+
 }

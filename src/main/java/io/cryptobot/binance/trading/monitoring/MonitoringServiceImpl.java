@@ -7,6 +7,7 @@ import io.cryptobot.binance.trade.session.model.TradeSession;
 import io.cryptobot.binance.trade.session.service.TradeSessionService;
 import io.cryptobot.binance.trading.updates.TradingUpdatesService;
 import io.cryptobot.market_data.ticker24h.Ticker24hService;
+import io.cryptobot.binance.order.enums.OrderStatus;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -102,19 +103,16 @@ public class MonitoringServiceImpl implements MonitoringService {
                 session.getId(), pnl, price, entryPrice);
 
         // === ЛОГИКА ВЫБОРА РЕЖИМА (как в Python) ===
-        // Проверяем наличие активных позиций (как в Python: active_positions)
-        boolean hasMain = session.getMainOrder() != null && session.getMainOrder().getPrice() != null && 
-                         session.getMainOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-        boolean hasHedge = session.getLastHedgeOrder() != null && session.getLastHedgeOrder().getPrice() != null && 
-                          session.getLastHedgeOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-        
+        boolean bothActive = session.hasBothPositionsActive();
+        boolean anyActive = session.hasActivePosition();
+
         // Если есть обе позиции - режим двух позиций
-        if (hasMain && hasHedge) {
+        if (bothActive) {
             log.debug("🛡️ Session {}: Two positions active - HEDGING mode", session.getId());
             applyTwoPositionsLogic(session, price);
         }
         // Если есть только одна позиция - режим одной позиции
-        else if (hasMain || hasHedge) {
+        else if (anyActive) {
             log.debug("🎯 Session {}: Single position active - SCALPING mode", session.getId());
             applySinglePositionLogic(session, price, activeOrder, pnl);
         }
@@ -260,20 +258,43 @@ public class MonitoringServiceImpl implements MonitoringService {
      * Иначе возвращает основной ордер
      */
     private TradeOrder getActiveOrderForMonitoring(TradeSession session) {
-        TradeOrder mainOrder = session.getMainOrder();
-        TradeOrder hedgeOrder = session.getLastHedgeOrder();
-        
-        // Проверяем, есть ли открытый хедж
-        if (hedgeOrder != null && hedgeOrder.getPrice() != null && hedgeOrder.getPrice().compareTo(BigDecimal.ZERO) > 0) {
-            // Если основной ордер закрыт или недоступен, используем хедж
-            if (mainOrder == null || mainOrder.getPrice() == null || mainOrder.getPrice().compareTo(BigDecimal.ZERO) == 0) {
-                log.debug("📊 Session {}: Using hedge order for monitoring (main order closed)", session.getId());
-                return hedgeOrder;
+        // Определяем активный ордер на основе состояния сессии, а не наличия цены у ордера
+        boolean activeLong = session.isActiveLong();
+        boolean activeShort = session.isActiveShort();
+
+        if (!activeLong && !activeShort) {
+            return null;
+        }
+
+        // Если активна только LONG позиция
+        if (activeLong && !activeShort) {
+            if (session.getDirection() == TradingDirection.LONG) {
+                return session.getMainOrder();
+            } else {
+                return getLastFilledHedgeOrderByDirection(session, TradingDirection.LONG);
             }
         }
-        
-        // По умолчанию используем основной ордер
-        return mainOrder;
+
+        // Если активна только SHORT позиция
+        if (activeShort && !activeLong) {
+            if (session.getDirection() == TradingDirection.SHORT) {
+                return session.getMainOrder();
+            } else {
+                return getLastFilledHedgeOrderByDirection(session, TradingDirection.SHORT);
+            }
+        }
+
+        // Если активны обе — для мониторинга вернем основной
+        return session.getMainOrder();
+    }
+
+    private TradeOrder getLastFilledHedgeOrderByDirection(TradeSession session, TradingDirection direction) {
+        return session.getOrders().stream()
+                .filter(o -> OrderPurpose.HEDGE_OPEN.equals(o.getPurpose()))
+                .filter(o -> OrderStatus.FILLED.equals(o.getStatus()))
+                .filter(o -> direction.equals(o.getDirection()))
+                .max(Comparator.comparing(TradeOrder::getOrderTime))
+                .orElse(null);
     }
 
     /**
@@ -321,13 +342,8 @@ public class MonitoringServiceImpl implements MonitoringService {
 
             // ✅ Ухудшение -0.1% → открываем хедж (только если нет второй позиции)
             if (delta.compareTo(BigDecimal.valueOf(-0.1)) <= 0) {
-                // Проверяем, есть ли уже противоположная позиция (как в Python)
-                boolean hasMain = session.getMainOrder() != null && session.getMainOrder().getPrice() != null && 
-                                 session.getMainOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-                boolean hasHedge = session.getLastHedgeOrder() != null && session.getLastHedgeOrder().getPrice() != null && 
-                                  session.getLastHedgeOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-                
-                if (hasMain && hasHedge) {
+                // Проверяем, есть ли уже две активные позиции (как в Python)
+                if (session.hasBothPositionsActive()) {
                     log.warn("⚠️ Session {} → HEDGE BLOCKED (two positions already active)", session.getId());
                     return;
                 }
@@ -349,13 +365,8 @@ public class MonitoringServiceImpl implements MonitoringService {
                 BigDecimal maxImp = activeOrder.getMaxChangePnl() != null ? activeOrder.getMaxChangePnl() : BigDecimal.ZERO;
                 if (maxImp.compareTo(BigDecimal.valueOf(0.1)) > 0 &&
                         delta.compareTo(maxImp.multiply(BigDecimal.valueOf(0.7))) <= 0) {
-                // Проверяем, есть ли уже противоположная позиция (как в Python)
-                boolean hasMain = session.getMainOrder() != null && session.getMainOrder().getPrice() != null && 
-                                 session.getMainOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-                boolean hasHedge = session.getLastHedgeOrder() != null && session.getLastHedgeOrder().getPrice() != null && 
-                                  session.getLastHedgeOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-                
-                if (hasMain && hasHedge) {
+                // Проверяем, есть ли уже две активные позиции (как в Python)
+                if (session.hasBothPositionsActive()) {
                     log.warn("⚠️ Session {} → HEDGE BLOCKED (two positions already active)", session.getId());
                     return;
                 }
@@ -442,6 +453,12 @@ public class MonitoringServiceImpl implements MonitoringService {
             return;
         }
 
+        // Пока активны обе позиции — блокируем открытие новых хеджей (как в Python)
+        if (session.hasBothPositionsActive()) {
+            log.warn("⚠️ Session {} → HEDGE BLOCKED (two positions already active)", session.getId());
+            return;
+        }
+
         // === Если worst снова в зоне отслеживания ===
         if (worstPnl.compareTo(BigDecimal.valueOf(-0.3)) <= 0 && worstOrder.getBasePnl() == null) {
             startTracking(worstOrder, worstPnl);
@@ -457,29 +474,19 @@ public class MonitoringServiceImpl implements MonitoringService {
         // ✅ Ухудшение WORST на -0.1% → открываем хедж (только если одна позиция)
         if (delta.compareTo(BigDecimal.valueOf(-0.1)) <= 0) {
             TradingDirection oppositeDirection = getOppositeDirection(worstOrder.getDirection());
-            
+
             // ❗ Защита от повторного открытия того же направления (как в Python)
-            boolean hasMain = session.getMainOrder() != null && session.getMainOrder().getPrice() != null && 
-                             session.getMainOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-            boolean hasHedge = session.getLastHedgeOrder() != null && session.getLastHedgeOrder().getPrice() != null && 
-                              session.getLastHedgeOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-            
-            // Проверяем, есть ли уже противоположная позиция
-            boolean hasOppositePosition = false;
-            if (oppositeDirection == TradingDirection.LONG) {
-                hasOppositePosition = hasMain && session.getMainOrder().getDirection() == TradingDirection.LONG;
-            } else {
-                hasOppositePosition = hasHedge && session.getLastHedgeOrder().getDirection() == TradingDirection.SHORT;
-            }
-            
+            boolean hasOppositePosition =
+                    (session.isActiveLong() && oppositeDirection == TradingDirection.LONG) ||
+                    (session.isActiveShort() && oppositeDirection == TradingDirection.SHORT);
+
             if (hasOppositePosition) {
                 log.warn("⚠️ Session {} → RE-HEDGE BLOCKED (opposite position already active)", session.getId());
                 return;
             }
 
             log.info("🛡️ Session {} → RE-HEDGE {} (worsening WORST {}% from {}%)",
-                    session.getId(), oppositeDirection, delta.multiply(BigDecimal.valueOf(100)),
-                    worstOrder.getBasePnl().multiply(BigDecimal.valueOf(100)));
+                    session.getId(), oppositeDirection, delta, worstOrder.getBasePnl());
             executeOpenHedge(session, oppositeDirection, "HEDGE_OPEN", price, "re_hedge_worsening");
             return;
         }
@@ -494,28 +501,19 @@ public class MonitoringServiceImpl implements MonitoringService {
         if (maxImp.compareTo(BigDecimal.valueOf(0.1)) > 0 &&
                 delta.compareTo(maxImp.multiply(BigDecimal.valueOf(0.7))) <= 0) {
             TradingDirection oppositeDirection = getOppositeDirection(worstOrder.getDirection());
-            
+
             // ❗ Защита от повторного открытия того же направления (как в Python)
-            boolean hasMain = session.getMainOrder() != null && session.getMainOrder().getPrice() != null && 
-                             session.getMainOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-            boolean hasHedge = session.getLastHedgeOrder() != null && session.getLastHedgeOrder().getPrice() != null && 
-                              session.getLastHedgeOrder().getPrice().compareTo(BigDecimal.ZERO) > 0;
-            
-            // Проверяем, есть ли уже противоположная позиция
-            boolean hasOppositePosition = false;
-            if (oppositeDirection == TradingDirection.LONG) {
-                hasOppositePosition = hasMain && session.getMainOrder().getDirection() == TradingDirection.LONG;
-            } else {
-                hasOppositePosition = hasHedge && session.getLastHedgeOrder().getDirection() == TradingDirection.SHORT;
-            }
-            
+            boolean hasOppositePosition =
+                    (session.isActiveLong() && oppositeDirection == TradingDirection.LONG) ||
+                    (session.isActiveShort() && oppositeDirection == TradingDirection.SHORT);
+
             if (hasOppositePosition) {
                 log.warn("⚠️ Session {} → RE-HEDGE BLOCKED (opposite position already active)", session.getId());
                 return;
             }
 
             log.info("🛡️ Session {} → RE-HEDGE {} (improvement WORST {}%, pullback ≥30%)",
-                    session.getId(), oppositeDirection, maxImp.multiply(BigDecimal.valueOf(100)));
+                    session.getId(), oppositeDirection, maxImp);
             executeOpenHedge(session, oppositeDirection, "HEDGE_OPEN", price, "re_hedge_improvement");
             return;
         }

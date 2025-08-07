@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
 import io.cryptobot.configs.service.AppConfig;
+import jakarta.annotation.PostConstruct;
 import lombok.experimental.UtilityClass;
 
 import java.math.BigDecimal;
@@ -21,6 +22,11 @@ import static java.util.stream.Collectors.toSet;
 @UtilityClass
 public class SymbolHelper {
     //todo cache
+//    @PostConstruct
+//    public void init (){
+//        getSizeModel("XRPUSDT");
+//    }
+
     public SizeModel getSizeModel(String symbol) {
         try {
             String url = AppConfig.BINANCE_URL+"/fapi/v1/exchangeInfo?symbol=" + symbol.toUpperCase();

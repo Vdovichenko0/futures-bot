@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 @ToString
 public class SizeModel {
     private BigDecimal tickSize;
-    private BigDecimal lotSize;
+    private BigDecimal lotSize; //for count
     private BigDecimal minCount;
     private BigDecimal minAmount;
 }

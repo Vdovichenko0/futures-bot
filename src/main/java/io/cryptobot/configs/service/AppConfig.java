@@ -1,8 +1,6 @@
 package io.cryptobot.configs.service;
 
 import com.binance.connector.futures.client.impl.UMFuturesClientImpl;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +17,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 
 @Slf4j
 @Component

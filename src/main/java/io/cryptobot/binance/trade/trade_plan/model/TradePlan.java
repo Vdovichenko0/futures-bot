@@ -1,6 +1,5 @@
 package io.cryptobot.binance.trade.trade_plan.model;
 
-import io.cryptobot.binance.trade.trade_plan.dto.TradePlanCreateDto;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;

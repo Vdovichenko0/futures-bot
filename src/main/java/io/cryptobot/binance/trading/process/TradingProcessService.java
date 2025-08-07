@@ -7,6 +7,6 @@ import java.math.BigDecimal;
 
 public interface TradingProcessService {
 
-    void openOrder(TradePlan plan, TradingDirection side, BigDecimal currentPrice, String context);
+    void openOrder(TradePlan plan, TradingDirection direction, BigDecimal currentPrice, String context);
 
 }

@@ -83,7 +83,7 @@ public class OrderServiceImpl implements OrderService{
                 if (existingOrder == null) {
                     log.debug("Order {} not found in DB (attempt {}/{})", updatedOrder.getOrderId(), attempt, maxRetries);
                     if (attempt >= maxRetries) {
-                        log.warn("⚠️ Order with ID {} still not found after {} attempts, giving up", updatedOrder.getOrderId(), maxRetries);
+                        log.warn("⚠️ Order with ID {} still not found after {} attempts, giving up", updatedOrder.getOrderId(), attempt);
                         return;
                     }
                     Thread.sleep(delayMs);

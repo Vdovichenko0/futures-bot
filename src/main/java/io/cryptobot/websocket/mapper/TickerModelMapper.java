@@ -13,9 +13,9 @@ public class TickerModelMapper {
 
         TickerModel ticker = new TickerModel();
 
-        ticker.setEventType(json.get("e").asText());
-        ticker.setEventTime(json.get("E").asLong());
-        ticker.setSymbol(json.get("s").asText());
+        ticker.setEventType(safeGetText(json, "e"));
+        ticker.setEventTime(safeGetLong(json, "E"));
+        ticker.setSymbol(safeGetText(json, "s"));
 
         ticker.setPriceChange(safeParseBigDecimal(json, "p"));
         ticker.setPriceChangePct(safeParseBigDecimal(json, "P"));
@@ -33,19 +33,36 @@ public class TickerModelMapper {
         ticker.setVolume(safeParseBigDecimal(json, "v"));
         ticker.setQuoteVolume(safeParseBigDecimal(json, "q"));
 
-        ticker.setStatisticsOpenTime(json.get("O").asLong());
-        ticker.setStatisticsCloseTime(json.get("C").asLong());
-        ticker.setFirstTradeId(json.get("F").asLong());
-        ticker.setLastTradeId(json.get("L").asLong());
-        ticker.setTotalTrades(json.get("n").asLong());
+        ticker.setStatisticsOpenTime(safeGetLong(json, "O"));
+        ticker.setStatisticsCloseTime(safeGetLong(json, "C"));
+        ticker.setFirstTradeId(safeGetLong(json, "F"));
+        ticker.setLastTradeId(safeGetLong(json, "L"));
+        ticker.setTotalTrades(safeGetLong(json, "n"));
 
         return ticker;
     }
 
     private static BigDecimal safeParseBigDecimal(JsonNode json, String fieldName) {
         if (json.has(fieldName) && !json.get(fieldName).isNull()) {
-            return new BigDecimal(json.get(fieldName).asText());
+            String value = json.get(fieldName).asText();
+            if (value != null && !value.trim().isEmpty()) {
+                return new BigDecimal(value);
+            }
         }
         return BigDecimal.ZERO;
+    }
+
+    private static String safeGetText(JsonNode json, String fieldName) {
+        if (json.has(fieldName) && !json.get(fieldName).isNull()) {
+            return json.get(fieldName).asText();
+        }
+        return "";
+    }
+
+    private static long safeGetLong(JsonNode json, String fieldName) {
+        if (json.has(fieldName) && !json.get(fieldName).isNull()) {
+            return json.get(fieldName).asLong();
+        }
+        return 0L;
     }
 }

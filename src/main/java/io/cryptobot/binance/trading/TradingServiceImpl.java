@@ -1,8 +1,10 @@
 package io.cryptobot.binance.trading;
 
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.trade_plan.model.TradeMetrics;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
+import io.cryptobot.binance.trading.process.TradingProcessService;
 import io.cryptobot.market_data.aggTrade.AggTrade;
 import io.cryptobot.market_data.aggTrade.AggTradeService;
 import io.cryptobot.market_data.depth.DepthModel;
@@ -18,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -29,73 +32,51 @@ import java.util.concurrent.Executors;
 @RequiredArgsConstructor
 @Slf4j
 public class TradingServiceImpl implements TradingService {
-// process order
-    // константы из config.json / Python
-//    private static final double EMA_SENSITIVITY = 0.0002;
     private static final int AGG_TRADE_LIMIT = 3600;
-//    private static final int DEPTH_LEVELS = 10;
-//    private static final double VOL_RATIO_THRESHOLD = 2.0;
-//    private static final double MIN_LONG_PCT = 70.0;
-//    private static final double MIN_SHORT_PCT = 70.0;
-//    private static final double MIN_IMBALANCE_LONG = 0.6;
-//    private static final double MAX_IMBALANCE_SHORT = 0.4;
     private static final double DEPTH_EPS = 1e-6;
 
     private final TradePlanGetService tradePlanGetService;
     private final KlineService klineService;
     private final AggTradeService aggTradeService;
     private final DepthService depthService;
-//    private final Ticker24hService ticker24hService;
     private final TradingLogWriter logWriter;
+    private final TradingProcessService tradingProcessService;
 
     private final Map<String, String> lastSignalMap = new ConcurrentHashMap<>();
     private final Map<String, Integer> sameCountMap = new ConcurrentHashMap<>();
+    private final Map<String, Long> lockMap = new ConcurrentHashMap<>();
 
     private final ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-
-//    @Override
-//    @Scheduled(initialDelay = 10_000, fixedRate = 1_000)
-//    public void startDemo() {
-//        tradePlanGetService.getAllActiveFalse().stream()
-//                .filter(plan -> !plan.getClose())
-//                .map(plan -> plan.getSymbol().toUpperCase())
-//                .forEach(this::analyzeSymbol);
-//    }
-
-//    @Override
-//    @Scheduled(initialDelay = 10_000, fixedRate = 1_000)
-//    public void startDemo() {
-//        tradePlanGetService.getAllActiveFalse().stream()
-//                .filter(plan -> !plan.getClose())
-//                .map(plan -> plan.getSymbol().toUpperCase())
-//                .forEach(symbol ->
-//                        executor.submit(() -> analyzeSymbol(symbol))
-//                );
-//    }
 
     @Override
     @Scheduled(initialDelay = 10_000, fixedRate = 1_000)
     public void startDemo() {
         tradePlanGetService.getAllActiveFalse().stream()
                 .filter(plan -> !plan.getClose())
-                .forEach(symbol -> executor.submit(() -> analyzeSymbol(symbol))
-                );
+                .forEach(plan -> executor.submit(() -> analyzeSymbol(plan)));
     }
 
     //todo lock plan if get signal to 1 min
     private void analyzeSymbol(TradePlan plan) {
         String symbol = plan.getSymbol();
+        
+        // Проверяем блокировку на 1 минуту
+        Long lockTime = lockMap.get(symbol);
+        if (lockTime != null && System.currentTimeMillis() - lockTime < 60_000) {
+            return; 
+        }
+        
         TradeMetrics metrics = plan.getMetrics();
         final double EMA_SENSITIVITY = metrics.getEmaSensitivity();
         final int DEPTH_LEVELS = metrics.getDepthLevels();
         final double VOL_RATIO_THRESHOLD = metrics.getVolRatioThreshold();
         final double MIN_LONG_PCT = metrics.getMinLongPct();
-        final double MIN_SHORT_PCT = metrics.getMinShortPct();;
-        final double MIN_IMBALANCE_LONG = metrics.getMinImbalanceLong();;
-        final double MAX_IMBALANCE_SHORT = metrics.getMaxImbalanceShort();;
+        final double MIN_SHORT_PCT = metrics.getMinShortPct();
+        final double MIN_IMBALANCE_LONG = metrics.getMinImbalanceLong();
+        final double MAX_IMBALANCE_SHORT = metrics.getMaxImbalanceShort();
 
         long startTime = System.currentTimeMillis();
-        String signal = "NO"; // Инициализируем по умолчанию
+        String signal = "NO"; 
         try {
             // 1. EMA Trend & diff
             List<KlineModel> klines = klineService.getKlines(symbol, IntervalE.ONE_MINUTE);
@@ -120,8 +101,6 @@ public class TradingServiceImpl implements TradingService {
             if (ticks.isEmpty()) {
                 return;
             }
-            //from old to new reverse
-//            Collections.reverse(ticks);
 
             long nowSec = Instant.now().getEpochSecond();
             double totalMinuteVol = ticks.stream()
@@ -171,10 +150,9 @@ public class TradingServiceImpl implements TradingService {
                     && volumeOk
                     && sp > MIN_SHORT_PCT
                     && imbalance < MAX_IMBALANCE_SHORT;
-            signal = longOk ? "LONG" : shortOk ? "SHORT" : "NO";
-
-//            // Дополнительная проверка только VolRatio
-//            String volSignal = volumeOk ? "HIGH_VOLUME" : "LOW_VOLUME";
+            
+            TradingDirection signalDirection = longOk ? TradingDirection.LONG : shortOk ? TradingDirection.SHORT : null;
+            signal = signalDirection != null ? signalDirection.name() : "NO";
 
             String last = lastSignalMap.getOrDefault(symbol, "NO");
             int count = sameCountMap.getOrDefault(symbol, 0);
@@ -211,6 +189,9 @@ public class TradingServiceImpl implements TradingService {
                 logWriter.writeTradeLog(symbol, "📊 Final Signal: " + signal);
                 logWriter.writeTradeLog(symbol, "==============new cycle==============");
                 sameCountMap.put(symbol, 0);
+                
+                // Отправляем сигнал в процессинг сервис
+                sendSignalToProcessing(plan, signal, currentPrice, trend, volRatio, imbalance, lp, sp);
             }
 
         } catch (Exception ex) {
@@ -221,6 +202,30 @@ public class TradingServiceImpl implements TradingService {
             if (!"NO".equals(signal)) {
                 logWriter.writeTradeLog(symbol, String.format("Analysis completed in %dms", duration));
             }
+        }
+    }
+
+    /**
+     * Отправляет сигнал в процессинг сервис с блокировкой на минуту
+     */
+    private void sendSignalToProcessing(TradePlan plan, String signal, double currentPrice, String trend, double volRatio, double imbalance, double lp, double sp) {
+        String symbol = plan.getSymbol();
+        
+        lockMap.put(symbol, System.currentTimeMillis());
+        
+        String context = String.format("SIGNAL: %s | EMA: %s | VOL: %.2fx | IMB: %.3f | L/S: %.1f%%/%.1f%% | PRICE: %.6f",
+                signal, trend != null ? trend.toUpperCase() : "NEUTRAL", volRatio, imbalance, lp, sp, currentPrice);
+        
+        log.info("🚀 Sending signal to processing: {} | {}", symbol, context);
+        
+        try {
+            // Отправляем в процессинг сервис
+            TradingDirection direction = TradingDirection.valueOf(signal);
+            tradingProcessService.openOrder(plan, direction, BigDecimal.valueOf(currentPrice), context);
+            log.info("✅ Signal sent to processing for {}", symbol);
+        } catch (Exception e) {
+            log.error("❌ Error sending signal to processing for {}: {}", symbol, e.getMessage(), e);
+            lockMap.remove(symbol);
         }
     }
 }

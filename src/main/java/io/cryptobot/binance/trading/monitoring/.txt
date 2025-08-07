@@ -1,0 +1,75 @@
+    @PostConstruct
+    public void init() {
+        // Создаем основной ордер (SHORT)
+        TradeOrder mainOrder = TradeOrder.builder()
+                .orderId(123L)
+                .direction(TradingDirection.SHORT)
+                .creationContext("context")
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .symbol("SUIUSDT")
+                .side(OrderSide.SELL)
+                .type("MARKET")
+                .count(BigDecimal.valueOf(1))
+                .price(BigDecimal.valueOf(3.469))
+                .commission(BigDecimal.valueOf(1))
+                .commissionAsset("USDT")
+                .pnl(BigDecimal.ZERO)
+                .leverage(10)
+                .modeAtCreation(SessionMode.SCALPING)
+                .orderTime(LocalDateTime.now().minusHours(1))
+                .trailingActive(false)
+                .pnlHigh(BigDecimal.ZERO)
+                .basePnl(null)
+                .maxChangePnl(null)
+                .status(OrderStatus.FILLED)
+                .amount(BigDecimal.ZERO)
+                .parentOrderId(null)
+                .relatedHedgeId(null)
+                .build();
+
+        // Создаем хедж ордер (LONG)
+        TradeOrder hedgeOrder = TradeOrder.builder()
+                .orderId(124L)
+                .direction(TradingDirection.LONG)
+                .creationContext("hedge_context")
+                .purpose(OrderPurpose.HEDGE_OPEN)
+                .symbol("SUIUSDT")
+                .side(OrderSide.BUY)
+                .type("MARKET")
+                .count(BigDecimal.valueOf(1))
+                .price(BigDecimal.valueOf(3.444))
+                .commission(BigDecimal.valueOf(1))
+                .commissionAsset("USDT")
+                .pnl(BigDecimal.ZERO)
+                .leverage(10)
+                .modeAtCreation(SessionMode.HEDGING)
+                .orderTime(LocalDateTime.now().minusMinutes(30))
+                .trailingActive(false)
+                .pnlHigh(BigDecimal.ZERO)
+                .basePnl(null)
+                .maxChangePnl(null)
+                .status(OrderStatus.FILLED)
+                .amount(BigDecimal.ZERO)
+                .parentOrderId(123L) // ссылка на основной ордер
+                .relatedHedgeId(null)
+                .build();
+
+        // Создаем сессию с основным ордером
+        TradeSession session = new TradeSession();
+        session.onCreate("SUIUSDT", TradingDirection.SHORT, mainOrder, "context");
+        session.setId("123ID");
+
+        // Добавляем хедж ордер в сессию
+        session.addOrder(hedgeOrder);
+
+        // Переключаем в режим хеджирования
+        session.changeMode(SessionMode.HEDGING);
+
+        List<TradeSession> ses = new ArrayList<>();
+        ses.add(session);
+//        List<TradeSession> ses = sessionService.getAllActive();
+        for (TradeSession tradeSession : ses) {
+            sessions.put(tradeSession.getId(), tradeSession);
+        }
+
+    }

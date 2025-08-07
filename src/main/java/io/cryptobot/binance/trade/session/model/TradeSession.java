@@ -1,5 +1,6 @@
 package io.cryptobot.binance.trade.session.model;
 
+import io.cryptobot.binance.order.enums.OrderPurpose;
 import io.cryptobot.binance.order.enums.OrderStatus;
 import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.SessionStatus;
@@ -15,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @ToString
@@ -36,9 +37,6 @@ public class TradeSession {
     private SessionMode currentMode; // SCALPING, HEDGING, POST_CLOSE, FORCING
     //when we now
     private TradingDirection direction; // LONG, SHORT
-    // trailing settings
-    private Boolean trailingActive = false;
-    private Long trailingOrderId;
 
     // PnL
     private BigDecimal pnl = BigDecimal.ZERO;
@@ -47,13 +45,16 @@ public class TradeSession {
     // operations
     private Integer hedgeOpenCount = 0;
     private Integer hedgeCloseCount = 0;
-    private Integer trailingActivations = 0;
 
     // context start session
     private String entryContext;
 
     private boolean activeLong;
     private boolean activeShort;
+    
+    // Флаг для защиты от повторной обработки
+    @Setter
+    private boolean processing = false;
 
     // time points
     private LocalDateTime createdTime;
@@ -87,6 +88,9 @@ public class TradeSession {
         orders.add(order);
         updatePositionState(order);
         updateAmount();
+        if (!hasActivePosition()) {
+            completeSession();
+        }
     }
 
     private void updatePositionState(TradeOrder order) {
@@ -108,6 +112,7 @@ public class TradeSession {
                     } else if (direction == TradingDirection.SHORT) {
                         openLongPosition();
                     }
+                    this.currentMode = SessionMode.HEDGING;
                     break;
                 case HEDGE_CLOSE:
                 case HEDGE_PARTIAL_CLOSE:
@@ -116,6 +121,11 @@ public class TradeSession {
                         closeShortPosition();
                     } else if (direction == TradingDirection.SHORT) {
                         closeLongPosition();
+                    }
+                    
+                    // Если после закрытия хеджа остается только одна позиция - переходим в SCALPING
+                    if (!hasBothPositionsActive() && hasActivePosition()) {
+                        this.currentMode = SessionMode.SCALPING;
                     }
                     break;
                 case MAIN_CLOSE:
@@ -191,26 +201,12 @@ public class TradeSession {
         return findOrderById(mainPosition);
     }
 
-    public TradeOrder getLastOrder() {
-        return orders.stream()
-                .max((o1, o2) -> o1.getOrderTime().compareTo(o2.getOrderTime()))
-                .orElse(null);
-    }
-
     public TradeOrder getLastHedgeOrder() {
         return orders.stream()
-                .filter(o -> io.cryptobot.binance.order.enums.OrderPurpose.HEDGE_OPEN.equals(o.getPurpose()))
-                .filter(o -> io.cryptobot.binance.order.enums.OrderStatus.FILLED.equals(o.getStatus()))
+                .filter(o -> OrderPurpose.HEDGE_OPEN.equals(o.getPurpose()))
+                .filter(o -> OrderStatus.FILLED.equals(o.getStatus()))
                 .max((o1, o2) -> o1.getOrderTime().compareTo(o2.getOrderTime()))
                 .orElse(null);
-    }
-
-    public boolean needsForcingMode() {
-        return pnl.compareTo(new BigDecimal("-0.005")) < 0; // -0.5%
-    }
-
-    public boolean isProfitable() {
-        return pnl.compareTo(BigDecimal.ZERO) > 0;
     }
 
     public boolean isInScalpingMode() {
@@ -219,15 +215,6 @@ public class TradeSession {
 
     public boolean isInHedgeMode() {
         return SessionMode.HEDGING.equals(currentMode);
-    }
-
-    public boolean hasActiveTrailing() {
-        return Boolean.TRUE.equals(trailingActive);
-    }
-
-    public String getSessionSummary() {
-        return String.format("Session %s: %s %s, PnL: %s, Mode: %s, Orders: %d, Positions: %s",
-                id, tradePlan, direction, pnl, currentMode, orders.size(), getPositionState());
     }
 
     public boolean hasActivePosition() {
@@ -252,23 +239,5 @@ public class TradeSession {
 
     public void openShortPosition() {
         this.activeShort = true;
-    }
-
-    // Метод для проверки, можно ли открыть хедж
-    public boolean canOpenHedge() {
-        return hasActivePosition() && !hasBothPositionsActive();
-    }
-
-    // Метод для получения текущего состояния позиций в виде строки
-    public String getPositionState() {
-        if (hasBothPositionsActive()) {
-            return "BOTH_ACTIVE";
-        } else if (activeLong) {
-            return "LONG_ACTIVE";
-        } else if (activeShort) {
-            return "SHORT_ACTIVE";
-        } else {
-            return "NO_POSITIONS";
-        }
     }
 }

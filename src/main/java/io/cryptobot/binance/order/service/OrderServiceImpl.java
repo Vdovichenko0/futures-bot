@@ -8,6 +8,7 @@ import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
 import io.cryptobot.binance.order.mapper.OrderMapper;
 import io.cryptobot.binance.order.model.Order;
+import io.cryptobot.binance.trade.session.model.TradeOrder;
 import io.cryptobot.configs.service.AppConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -216,6 +217,53 @@ public class OrderServiceImpl implements OrderService{
             return null;
         }
     }
+
+    @Override
+    @Transactional
+    public Order closeOrder(TradeOrder order) {
+        try {
+        log.info("Closing order/position: {}", order);
+
+        UMFuturesClientImpl client = new UMFuturesClientImpl(
+                AppConfig.API_KEY,
+                AppConfig.SECRET_KEY,
+                AppConfig.BINANCE_URL
+        );
+
+        // Если ордер исполнен, закрываем позицию
+        BigDecimal qtyToClose = order.getCount();
+        if (qtyToClose == null || qtyToClose.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Quantity to close is zero or missing for order: {}", order);
+            return null;
+        }
+
+        // Определяем сторону закрытия: если была BUY (лонг) — закрываем SELL, если SELL (шорт) — BUY
+        OrderSide closingSide = order.getSide().equals(OrderSide.BUY) ? OrderSide.SELL : OrderSide.BUY;
+
+        LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+        params.put("symbol", order.getSymbol().toUpperCase());
+        params.put("side", closingSide.toString());
+        params.put("type", "MARKET");
+        params.put("quantity", qtyToClose.toPlainString());
+
+        // В hedge model нужно указать positionSide точно таким же, как у исходной позиции (LONG/SHORT)
+            params.put("positionSide", order.getDirection().toString());
+
+
+        String response = client.account().newOrder(params);
+        log.info("Close order response: {}", response);
+
+        JsonNode node = objectMapper.readTree(response);
+        Order closed = OrderMapper.fromRest(node);
+        orderRepository.save(closed);
+        log.info("Mapped and saved closed order: {}", closed);
+        return closed;
+
+    } catch (Exception e) {
+        log.error("Failed to close order: {}", order, e);
+        return null;
+    }
+}
 
     @Override
     @Transactional

@@ -39,12 +39,12 @@ public class TradingProcessServiceImpl implements TradingProcessService{
     private int maxWaitMillis = 15000;
     @Getter
     @Setter
-    private int intervalMillis = 2000; 
+    private int intervalMillis = 200;
 
-//    @Scheduled(initialDelay = 5_000)
+//    @Scheduled(initialDelay = 10_000)
 //    public void init(){
-//        TradePlan plan = tradePlanGetService.getPlan("XRPUSDT");
-//        openOrder(plan, TradingDirection.LONG, BigDecimal.valueOf(3.0693), "test");
+//        TradePlan plan = tradePlanGetService.getPlan("LINKUSDC");
+//        openOrder(plan, TradingDirection.SHORT, BigDecimal.valueOf(19.4), "test");
 //    }
 
     @Override

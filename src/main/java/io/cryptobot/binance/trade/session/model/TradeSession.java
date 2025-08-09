@@ -94,57 +94,80 @@ public class TradeSession {
     }
 
     private void updatePositionState(TradeOrder order) {
-        // Обновляем состояние позиций в зависимости от типа ордера
-        if (order.getStatus() == OrderStatus.FILLED) {
-            switch (order.getPurpose()) {
-                case MAIN_OPEN:
-                    // При открытии основной позиции устанавливаем соответствующее состояние
-                    if (direction == TradingDirection.LONG) {
-                        openLongPosition();
-                    } else if (direction == TradingDirection.SHORT) {
-                        openShortPosition();
-                    }
-                    break;
-                case HEDGE_OPEN:
-                    // При открытии хеджа добавляем противоположную позицию
-                    if (direction == TradingDirection.LONG) {
-                        openShortPosition();
-                    } else if (direction == TradingDirection.SHORT) {
-                        openLongPosition();
-                    }
-                    this.currentMode = SessionMode.HEDGING;
-                    break;
-                case HEDGE_CLOSE:
-                case HEDGE_PARTIAL_CLOSE:
-                    // При закрытии хеджа (полном или частичном) убираем соответствующую позицию
-                    if (direction == TradingDirection.LONG) {
-                        closeShortPosition();
-                    } else if (direction == TradingDirection.SHORT) {
+        // Обновляем состояние позиций строго по фактическому направлению ордера
+        if (order.getStatus() != OrderStatus.FILLED) {
+            return;
+        }
+
+        switch (order.getPurpose()) {
+            case MAIN_OPEN:
+                if (order.getDirection() == TradingDirection.LONG) {
+                    openLongPosition();
+                } else if (order.getDirection() == TradingDirection.SHORT) {
+                    openShortPosition();
+                }
+                break;
+
+            case HEDGE_OPEN:
+                if (order.getDirection() == TradingDirection.LONG) {
+                    openLongPosition();
+                } else if (order.getDirection() == TradingDirection.SHORT) {
+                    openShortPosition();
+                }
+                this.currentMode = SessionMode.HEDGING;
+                break;
+
+            case HEDGE_CLOSE:
+                if (order.getDirection() == TradingDirection.LONG) {
+                    closeLongPosition();
+                } else if (order.getDirection() == TradingDirection.SHORT) {
+                    closeShortPosition();
+                }
+                // Если после закрытия хеджа остается только одна позиция - переходим в SCALPING
+                if (!hasBothPositionsActive() && hasActivePosition()) {
+                    this.currentMode = SessionMode.SCALPING;
+                }
+                break;
+            case HEDGE_PARTIAL_CLOSE:
+                // Частичное закрытие не меняет флаги позиций
+                break;
+
+            case MAIN_CLOSE:
+            case FORCE_CLOSE:
+                // Если это закрытие относится к основному ордеру — очищаем ссылку на mainPosition
+                if (order.getParentOrderId() != null && order.getParentOrderId().equals(mainPosition)) {
+                    TradeOrder mainOrder = getMainOrder();
+                    this.mainPosition = null;
+                    // Закрываем позицию по направлению MAIN ордера
+                    if (mainOrder != null && mainOrder.getDirection() == TradingDirection.LONG) {
                         closeLongPosition();
-                    }
-                    
-                    // Если после закрытия хеджа остается только одна позиция - переходим в SCALPING
-                    if (!hasBothPositionsActive() && hasActivePosition()) {
-                        this.currentMode = SessionMode.SCALPING;
-                    }
-                    break;
-                case MAIN_CLOSE:
-                case MAIN_PARTIAL_CLOSE:
-                case FORCE_CLOSE:
-                    // При закрытии основной позиции (полном, частичном или форсированном)
-                    if (direction == TradingDirection.LONG) {
-                        closeLongPosition();
-                    } else if (direction == TradingDirection.SHORT) {
+                    } else if (mainOrder != null && mainOrder.getDirection() == TradingDirection.SHORT) {
                         closeShortPosition();
                     }
-                    break;
-                case CANCEL:
-                    // При отмене ордера состояние не меняется
-                    break;
-                default:
-                    // Для других типов ордеров состояние не меняется
-                    break;
-            }
+                } else {
+                    // Это закрытие хеджа - закрываем позицию по направлению ордера
+                    if (order.getDirection() == TradingDirection.LONG) {
+                        closeLongPosition();
+                    } else if (order.getDirection() == TradingDirection.SHORT) {
+                        closeShortPosition();
+                    }
+                }
+                // Если после закрытия остается только одна позиция - переходим в SCALPING
+                if (!hasBothPositionsActive() && hasActivePosition()) {
+                    this.currentMode = SessionMode.SCALPING;
+                }
+                break;
+            case MAIN_PARTIAL_CLOSE:
+                // Частичное закрытие не меняет флаги позиций
+                break;
+
+            case CANCEL:
+                // При отмене ордера состояние не меняется
+                break;
+
+            default:
+                // Для других типов ордеров состояние не меняется
+                break;
         }
     }
 
@@ -191,6 +214,7 @@ public class TradeSession {
 
     // Методы для быстрого поиска ордеров
     public TradeOrder findOrderById(Long orderId) {
+        if (orderId == null) return null;
         return orders.stream()
                 .filter(o -> orderId.equals(o.getOrderId()))
                 .findFirst()
@@ -239,5 +263,43 @@ public class TradeSession {
 
     public void openShortPosition() {
         this.activeShort = true;
+    }
+
+    // Пересчет активных флагов по нетто-количеству FILLED позиций (MAIN_OPEN/HEDGE_OPEN минус CLOSE)
+    private void recalcActiveFlags() {
+        boolean hasLong = false;
+        boolean hasShort = false;
+
+        // Находим последний FILLED открывающий ордер для каждой стороны, который не закрыт
+        for (TradeOrder o : orders) {
+            if (!OrderStatus.FILLED.equals(o.getStatus())) continue;
+
+            if (OrderPurpose.MAIN_OPEN.equals(o.getPurpose()) || OrderPurpose.HEDGE_OPEN.equals(o.getPurpose())) {
+                if (o.getDirection() == TradingDirection.LONG) {
+                    if (!isOrderClosed(o)) hasLong = true;
+                } else if (o.getDirection() == TradingDirection.SHORT) {
+                    if (!isOrderClosed(o)) hasShort = true;
+                }
+            }
+        }
+
+        this.activeLong = hasLong;
+        this.activeShort = hasShort;
+    }
+
+    private boolean isOrderClosed(TradeOrder openOrder) {
+        if (OrderPurpose.MAIN_OPEN.equals(openOrder.getPurpose())) {
+            return orders.stream()
+                    .filter(o -> OrderStatus.FILLED.equals(o.getStatus()))
+                    .anyMatch(o -> (OrderPurpose.MAIN_CLOSE.equals(o.getPurpose()) || OrderPurpose.MAIN_PARTIAL_CLOSE.equals(o.getPurpose()))
+                            && openOrder.getOrderId().equals(o.getParentOrderId()));
+        }
+        if (OrderPurpose.HEDGE_OPEN.equals(openOrder.getPurpose())) {
+            return orders.stream()
+                    .filter(o -> OrderStatus.FILLED.equals(o.getStatus()))
+                    .anyMatch(o -> (OrderPurpose.HEDGE_CLOSE.equals(o.getPurpose()) || OrderPurpose.HEDGE_PARTIAL_CLOSE.equals(o.getPurpose()))
+                            && openOrder.getOrderId().equals(o.getParentOrderId()));
+        }
+        return true;
     }
 }

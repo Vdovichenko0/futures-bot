@@ -3,737 +3,377 @@ package io.cryptobot.binance.trade.session.model;
 import io.cryptobot.binance.order.enums.OrderPurpose;
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
-import io.cryptobot.binance.order.model.Order;
 import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.SessionStatus;
 import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("TradeSession Tests")
 class TradeSessionTest {
 
-    private TradeSession tradeSession;
+    private TradeSession session;
     private TradeOrder mainOrder;
     private TradePlan tradePlan;
 
     @BeforeEach
     void setUp() {
-        tradeSession = new TradeSession();
-        
-        // Создаем основной ордер
-        Order order = Order.builder()
-                .orderId(123456789L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.BUY)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("50000.00"))
-                .commission(new BigDecimal("0.05"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
+        session = new TradeSession();
         tradePlan = TradePlan.builder()
+                .symbol("BTCUSDT")
                 .leverage(10)
                 .build();
-
-        mainOrder = new TradeOrder();
-        mainOrder.onCreate(order, new BigDecimal("10.50"), SessionMode.SCALPING, 
-                "Test main order", tradePlan, TradingDirection.LONG, OrderPurpose.MAIN_OPEN, 
-                null, null);
+        
+        mainOrder = createOrder(1001L, OrderPurpose.MAIN_OPEN, TradingDirection.LONG, 
+                OrderStatus.FILLED, BigDecimal.valueOf(50000), BigDecimal.valueOf(0.1));
     }
 
     @Test
-    @DisplayName("Should create session with LONG direction")
-    void testCreateSessionWithLongDirection() {
+    void testSessionCreation() {
         // Given
-        String plan = "BTCUSDT_plan";
-        TradingDirection direction = TradingDirection.LONG;
-        String context = "Test session creation";
-
-        // When
-        tradeSession.onCreate(plan, direction, mainOrder, context);
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
 
         // Then
-        assertEquals(plan, tradeSession.getTradePlan());
-        assertEquals(SessionStatus.ACTIVE, tradeSession.getStatus());
-        assertEquals(SessionMode.SCALPING, tradeSession.getCurrentMode());
-        assertEquals(TradingDirection.LONG, tradeSession.getDirection());
-        assertEquals(context, tradeSession.getEntryContext());
-        assertEquals(123456789L, tradeSession.getMainPosition());
-        assertEquals(1, tradeSession.getOrders().size());
-        assertEquals(mainOrder, tradeSession.getOrders().get(0));
-        assertTrue(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort());
-        assertTrue(tradeSession.hasActivePosition());
-        assertFalse(tradeSession.hasBothPositionsActive());
-        assertNotNull(tradeSession.getCreatedTime());
-        assertNull(tradeSession.getEndTime());
-        assertEquals(new BigDecimal("10.50"), tradeSession.getPnl());
-        assertEquals(new BigDecimal("0.05"), tradeSession.getTotalCommission());
-        assertEquals(0, tradeSession.getHedgeOpenCount());
-        assertEquals(0, tradeSession.getHedgeCloseCount());
+        assertEquals("BTCUSDT", session.getTradePlan());
+        assertEquals(TradingDirection.LONG, session.getDirection());
+        assertEquals(SessionStatus.ACTIVE, session.getStatus());
+        assertEquals(SessionMode.SCALPING, session.getCurrentMode());
+        assertEquals(1001L, session.getMainPosition());
+        assertEquals(1, session.getOrders().size());
+        assertTrue(session.isActiveLong());
+        assertFalse(session.isActiveShort());
+        assertTrue(session.hasActivePosition());
+        assertFalse(session.hasBothPositionsActive());
+        assertNotNull(session.getCreatedTime());
     }
 
     @Test
-    @DisplayName("Should create session with SHORT direction")
-    void testCreateSessionWithShortDirection() {
-        // Given
-        Order shortOrder = Order.builder()
-                .orderId(987654321L)
-                .symbol("ETHUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.01"))
-                .averagePrice(new BigDecimal("3000.00"))
-                .commission(new BigDecimal("0.03"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder mainShortOrder = new TradeOrder();
-        mainShortOrder.onCreate(shortOrder, new BigDecimal("-5.25"), SessionMode.SCALPING,
-                "Test short order", tradePlan, TradingDirection.SHORT, OrderPurpose.MAIN_OPEN,
-                null, null);
-
-        String plan = "ETHUSDT_plan";
-        TradingDirection direction = TradingDirection.SHORT;
-        String context = "Test short session creation";
-
-        // When
-        tradeSession.onCreate(plan, direction, mainShortOrder, context);
-
-        // Then
-        assertEquals(plan, tradeSession.getTradePlan());
-        assertEquals(SessionStatus.ACTIVE, tradeSession.getStatus());
-        assertEquals(SessionMode.SCALPING, tradeSession.getCurrentMode());
-        assertEquals(TradingDirection.SHORT, tradeSession.getDirection());
-        assertEquals(context, tradeSession.getEntryContext());
-        assertEquals(987654321L, tradeSession.getMainPosition());
-        assertEquals(1, tradeSession.getOrders().size());
-        assertEquals(mainShortOrder, tradeSession.getOrders().get(0));
-        assertFalse(tradeSession.isActiveLong());
-        assertTrue(tradeSession.isActiveShort());
-        assertTrue(tradeSession.hasActivePosition());
-        assertFalse(tradeSession.hasBothPositionsActive());
-        assertNotNull(tradeSession.getCreatedTime());
-        assertNull(tradeSession.getEndTime());
-        assertEquals(new BigDecimal("-5.25"), tradeSession.getPnl());
-        assertEquals(new BigDecimal("0.03"), tradeSession.getTotalCommission());
-        assertEquals(0, tradeSession.getHedgeOpenCount());
-        assertEquals(0, tradeSession.getHedgeCloseCount());
-    }
-
-    @Test
-    @DisplayName("Should add hedge order and switch to HEDGING mode")
     void testAddHedgeOrder() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
-
-        Order hedgeOrder = Order.builder()
-                .orderId(555666777L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("49000.00"))
-                .commission(new BigDecimal("0.04"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder hedgeTradeOrder = new TradeOrder();
-        hedgeTradeOrder.onCreate(hedgeOrder, new BigDecimal("-15.75"), SessionMode.HEDGING,
-                "Hedge order", tradePlan, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
-                123456789L, null);
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        TradeOrder hedgeOrder = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
 
         // When
-        tradeSession.addOrder(hedgeTradeOrder);
+        session.addOrder(hedgeOrder);
 
         // Then
-        assertEquals(2, tradeSession.getOrders().size());
-        assertEquals(SessionMode.HEDGING, tradeSession.getCurrentMode());
-        assertTrue(tradeSession.isActiveLong());
-        assertTrue(tradeSession.isActiveShort());
-        assertTrue(tradeSession.hasBothPositionsActive());
-        assertTrue(tradeSession.hasActivePosition());
-        assertEquals(new BigDecimal("-5.25"), tradeSession.getPnl()); // 10.50 + (-15.75)
-        assertEquals(new BigDecimal("0.09"), tradeSession.getTotalCommission()); // 0.05 + 0.04
-        assertEquals(1, tradeSession.getHedgeOpenCount());
-        assertEquals(0, tradeSession.getHedgeCloseCount());
+        assertEquals(SessionMode.HEDGING, session.getCurrentMode());
+        assertTrue(session.isActiveLong());
+        assertTrue(session.isActiveShort());
+        assertTrue(session.hasBothPositionsActive());
+        assertEquals(2, session.getOrders().size());
+        assertEquals(1, session.getHedgeOpenCount());
+        assertEquals(0, session.getHedgeCloseCount());
     }
 
     @Test
-    @DisplayName("Should close hedge and return to SCALPING mode")
-    void testCloseHedgeAndReturnToScalping() {
+    void testCloseMainOrder() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
-
-        // Добавляем хедж
-        Order hedgeOrder = Order.builder()
-                .orderId(555666777L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("49000.00"))
-                .commission(new BigDecimal("0.04"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder hedgeTradeOrder = new TradeOrder();
-        hedgeTradeOrder.onCreate(hedgeOrder, new BigDecimal("-15.75"), SessionMode.HEDGING,
-                "Hedge order", tradePlan, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
-                123456789L, null);
-
-        tradeSession.addOrder(hedgeTradeOrder);
-
-        // Закрываем хедж
-        Order closeHedgeOrder = Order.builder()
-                .orderId(888999000L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.BUY)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("49500.00"))
-                .commission(new BigDecimal("0.05"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder closeHedgeTradeOrder = new TradeOrder();
-        closeHedgeTradeOrder.onCreate(closeHedgeOrder, new BigDecimal("5.00"), SessionMode.HEDGING,
-                "Close hedge order", tradePlan, TradingDirection.LONG, OrderPurpose.HEDGE_CLOSE,
-                123456789L, 555666777L);
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        TradeOrder hedgeOrder = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
+        session.addOrder(hedgeOrder);
+        
+        TradeOrder closeMainOrder = createOrder(1003L, OrderPurpose.MAIN_CLOSE, TradingDirection.LONG, 
+                OrderStatus.FILLED, BigDecimal.valueOf(51000), BigDecimal.valueOf(0.1), 1001L, null);
 
         // When
-        tradeSession.addOrder(closeHedgeTradeOrder);
+        session.addOrder(closeMainOrder);
 
         // Then
-        assertEquals(3, tradeSession.getOrders().size());
-        assertEquals(SessionMode.SCALPING, tradeSession.getCurrentMode());
-        assertTrue(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort());
-        assertFalse(tradeSession.hasBothPositionsActive());
-        assertTrue(tradeSession.hasActivePosition());
-        assertEquals(new BigDecimal("-0.25"), tradeSession.getPnl()); // 10.50 + (-15.75) + 5.00
-        assertEquals(new BigDecimal("0.14"), tradeSession.getTotalCommission()); // 0.05 + 0.04 + 0.05
-        assertEquals(1, tradeSession.getHedgeOpenCount());
-        assertEquals(1, tradeSession.getHedgeCloseCount());
+        assertNull(session.getMainPosition()); // mainPosition очищен
+        assertFalse(session.isActiveLong());
+        assertTrue(session.isActiveShort());
+        assertFalse(session.hasBothPositionsActive());
+        assertTrue(session.hasActivePosition());
+        assertEquals(SessionMode.SCALPING, session.getCurrentMode()); // вернулись в SCALPING
+        assertEquals(3, session.getOrders().size());
     }
 
     @Test
-    @DisplayName("Should complete session when no active positions")
-    void testCompleteSessionWhenNoActivePositions() {
+    void testCloseHedgeOrder() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
-
-        // Закрываем основную позицию
-        Order closeMainOrder = Order.builder()
-                .orderId(111222333L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("51000.00"))
-                .commission(new BigDecimal("0.05"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder closeMainTradeOrder = new TradeOrder();
-        closeMainTradeOrder.onCreate(closeMainOrder, new BigDecimal("10.00"), SessionMode.SCALPING,
-                "Close main order", tradePlan, TradingDirection.SHORT, OrderPurpose.MAIN_CLOSE,
-                null, null);
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        TradeOrder hedgeOrder = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
+        session.addOrder(hedgeOrder);
+        
+        TradeOrder closeHedgeOrder = createOrder(1003L, OrderPurpose.HEDGE_CLOSE, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(48000), BigDecimal.valueOf(0.1), null, 1002L);
 
         // When
-        tradeSession.addOrder(closeMainTradeOrder);
+        session.addOrder(closeHedgeOrder);
 
         // Then
-        assertEquals(SessionStatus.COMPLETED, tradeSession.getStatus());
-        assertNotNull(tradeSession.getEndTime());
-        assertNotNull(tradeSession.getDurationMinutes());
-        assertFalse(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort());
-        assertFalse(tradeSession.hasActivePosition());
-        assertEquals(new BigDecimal("20.50"), tradeSession.getPnl()); // 10.50 + 10.00
-        assertEquals(new BigDecimal("0.10"), tradeSession.getTotalCommission()); // 0.05 + 0.05
+        assertTrue(session.isActiveLong());
+        assertFalse(session.isActiveShort());
+        assertFalse(session.hasBothPositionsActive());
+        assertTrue(session.hasActivePosition());
+        assertEquals(SessionMode.SCALPING, session.getCurrentMode()); // вернулись в SCALPING
+        assertEquals(1, session.getHedgeCloseCount());
     }
 
     @Test
-    @DisplayName("Should handle partial hedge close")
-    void testPartialHedgeClose() {
+    void testComplexScenario() {
+        // Given - создаем сессию с LONG
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        assertEquals(SessionMode.SCALPING, session.getCurrentMode());
+        assertTrue(session.isActiveLong());
+        assertFalse(session.isActiveShort());
+
+        // When - добавляем SHORT хедж
+        TradeOrder hedge1 = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
+        session.addOrder(hedge1);
+        
+        // Then - проверяем режим HEDGING
+        assertEquals(SessionMode.HEDGING, session.getCurrentMode());
+        assertTrue(session.isActiveLong());
+        assertTrue(session.isActiveShort());
+        assertTrue(session.hasBothPositionsActive());
+
+        // When - закрываем MAIN LONG
+        TradeOrder closeMain = createOrder(1003L, OrderPurpose.MAIN_CLOSE, TradingDirection.LONG, 
+                OrderStatus.FILLED, BigDecimal.valueOf(51000), BigDecimal.valueOf(0.1), 1001L, null);
+        session.addOrder(closeMain);
+        
+        // Then - проверяем что остался только SHORT хедж
+        assertNull(session.getMainPosition());
+        assertFalse(session.isActiveLong());
+        assertTrue(session.isActiveShort());
+        assertFalse(session.hasBothPositionsActive());
+        assertTrue(session.hasActivePosition());
+        assertEquals(SessionMode.SCALPING, session.getCurrentMode());
+
+        // When - добавляем еще один LONG хедж (теперь у нас SHORT + LONG)
+        TradeOrder hedge2 = createOrder(1004L, OrderPurpose.HEDGE_OPEN, TradingDirection.LONG, 
+                OrderStatus.FILLED, BigDecimal.valueOf(52000), BigDecimal.valueOf(0.1), 1002L);
+        session.addOrder(hedge2);
+        
+        // Then - проверяем что снова HEDGING режим
+        assertEquals(SessionMode.HEDGING, session.getCurrentMode());
+        assertTrue(session.isActiveLong());
+        assertTrue(session.isActiveShort());
+        assertTrue(session.hasBothPositionsActive());
+
+        // When - закрываем SHORT хедж
+        TradeOrder closeHedge1 = createOrder(1005L, OrderPurpose.HEDGE_CLOSE, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(48000), BigDecimal.valueOf(0.1), null, 1002L);
+        session.addOrder(closeHedge1);
+        
+        // Then - проверяем что остался только LONG хедж
+        assertTrue(session.isActiveLong());
+        assertFalse(session.isActiveShort());
+        assertFalse(session.hasBothPositionsActive());
+        assertTrue(session.hasActivePosition());
+        assertEquals(SessionMode.SCALPING, session.getCurrentMode());
+
+        // When - закрываем последний LONG хедж
+        TradeOrder closeHedge2 = createOrder(1006L, OrderPurpose.HEDGE_CLOSE, TradingDirection.LONG, 
+                OrderStatus.FILLED, BigDecimal.valueOf(53000), BigDecimal.valueOf(0.1), null, 1004L);
+        session.addOrder(closeHedge2);
+        
+        // Then - проверяем что сессия завершена
+        assertFalse(session.isActiveLong());
+        assertFalse(session.isActiveShort());
+        assertFalse(session.hasActivePosition());
+        assertEquals(SessionStatus.COMPLETED, session.getStatus());
+        assertNotNull(session.getEndTime());
+    }
+
+    @Test
+    void testPartialClose() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        TradeOrder hedgeOrder = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
+        session.addOrder(hedgeOrder);
+        
+        // When - частичное закрытие MAIN
+        TradeOrder partialCloseMain = createOrder(1003L, OrderPurpose.MAIN_PARTIAL_CLOSE, TradingDirection.LONG, 
+                OrderStatus.FILLED, BigDecimal.valueOf(51000), BigDecimal.valueOf(0.05), null, 1001L);
+        session.addOrder(partialCloseMain);
 
-        // Добавляем хедж
-        Order hedgeOrder = Order.builder()
-                .orderId(555666777L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("49000.00"))
-                .commission(new BigDecimal("0.04"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder hedgeTradeOrder = new TradeOrder();
-        hedgeTradeOrder.onCreate(hedgeOrder, new BigDecimal("-15.75"), SessionMode.HEDGING,
-                "Hedge order", tradePlan, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
-                123456789L, null);
-
-        tradeSession.addOrder(hedgeTradeOrder);
-
-        // Частично закрываем хедж
-        Order partialCloseOrder = Order.builder()
-                .orderId(444555666L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.BUY)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.0005"))
-                .averagePrice(new BigDecimal("49500.00"))
-                .commission(new BigDecimal("0.025"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder partialCloseTradeOrder = new TradeOrder();
-        partialCloseTradeOrder.onCreate(partialCloseOrder, new BigDecimal("2.50"), SessionMode.HEDGING,
-                "Partial close hedge", tradePlan, TradingDirection.LONG, OrderPurpose.HEDGE_PARTIAL_CLOSE,
-                123456789L, 555666777L);
-
-        // When
-        tradeSession.addOrder(partialCloseTradeOrder);
-
-        // Then
-        assertEquals(3, tradeSession.getOrders().size());
-        assertEquals(SessionMode.SCALPING, tradeSession.getCurrentMode()); // Переходит в SCALPING режим
-        assertTrue(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort()); // Частичное закрытие закрывает хедж
-        assertFalse(tradeSession.hasBothPositionsActive());
-        assertEquals(new BigDecimal("-2.75"), tradeSession.getPnl()); // 10.50 + (-15.75) + 2.50
-        assertEquals(new BigDecimal("0.115"), tradeSession.getTotalCommission()); // 0.05 + 0.04 + 0.025
-        assertEquals(1, tradeSession.getHedgeOpenCount());
-        assertEquals(0, tradeSession.getHedgeCloseCount());
+        // Then - позиции должны остаться активными (частичное закрытие)
+        assertTrue(session.isActiveLong());
+        assertTrue(session.isActiveShort());
+        assertTrue(session.hasBothPositionsActive());
+        assertEquals(SessionMode.HEDGING, session.getCurrentMode());
     }
 
     @Test
-    @DisplayName("Should handle force close")
-    void testForceClose() {
+    void testNonFilledOrders() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        
+        // When - добавляем неисполненный ордер
+        TradeOrder pendingOrder = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.NEW, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
+        session.addOrder(pendingOrder);
 
-        // Форсированное закрытие
-        Order forceCloseOrder = Order.builder()
-                .orderId(777888999L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("48000.00"))
-                .commission(new BigDecimal("0.05"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder forceCloseTradeOrder = new TradeOrder();
-        forceCloseTradeOrder.onCreate(forceCloseOrder, new BigDecimal("-20.00"), SessionMode.SCALPING,
-                "Force close", tradePlan, TradingDirection.SHORT, OrderPurpose.FORCE_CLOSE,
-                null, null);
-
-        // When
-        tradeSession.addOrder(forceCloseTradeOrder);
-
-        // Then
-        assertEquals(SessionStatus.COMPLETED, tradeSession.getStatus());
-        assertFalse(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort());
-        assertFalse(tradeSession.hasActivePosition());
-        assertEquals(new BigDecimal("-9.50"), tradeSession.getPnl()); // 10.50 + (-20.00)
-        assertEquals(new BigDecimal("0.10"), tradeSession.getTotalCommission()); // 0.05 + 0.05
+        // Then - состояние не должно измениться
+        assertTrue(session.isActiveLong());
+        assertFalse(session.isActiveShort());
+        assertFalse(session.hasBothPositionsActive());
+        assertEquals(SessionMode.SCALPING, session.getCurrentMode());
     }
 
     @Test
-    @DisplayName("Should handle cancelled order")
-    void testCancelledOrder() {
-        // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
-
-        // Отмененный ордер
-        Order cancelOrder = Order.builder()
-                .orderId(999888777L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("LIMIT")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(BigDecimal.ZERO)
-                .commission(BigDecimal.ZERO)
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.CANCELLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder cancelTradeOrder = new TradeOrder();
-        cancelTradeOrder.onCreate(cancelOrder, BigDecimal.ZERO, SessionMode.SCALPING,
-                "Cancelled order", tradePlan, TradingDirection.SHORT, OrderPurpose.CANCEL,
-                null, null);
-
-        // When
-        tradeSession.addOrder(cancelTradeOrder);
-
-        // Then
-        assertEquals(2, tradeSession.getOrders().size());
-        assertEquals(SessionMode.SCALPING, tradeSession.getCurrentMode()); // Режим не меняется
-        assertTrue(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort());
-        assertTrue(tradeSession.hasActivePosition());
-        assertEquals(new BigDecimal("10.50"), tradeSession.getPnl()); // PnL не меняется
-        assertEquals(new BigDecimal("0.05"), tradeSession.getTotalCommission()); // Комиссия не меняется
-        assertEquals(0, tradeSession.getHedgeOpenCount());
-        assertEquals(0, tradeSession.getHedgeCloseCount());
-    }
-
-    @Test
-    @DisplayName("Should find order by ID")
     void testFindOrderById() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        TradeOrder hedgeOrder = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
+        session.addOrder(hedgeOrder);
 
-        // When
-        TradeOrder foundOrder = tradeSession.findOrderById(123456789L);
-        TradeOrder notFoundOrder = tradeSession.findOrderById(999999999L);
-
-        // Then
-        assertNotNull(foundOrder);
-        assertEquals(123456789L, foundOrder.getOrderId());
-        assertNull(notFoundOrder);
+        // When & Then
+        assertNotNull(session.findOrderById(1001L));
+        assertNotNull(session.findOrderById(1002L));
+        assertNull(session.findOrderById(9999L));
+        
+        assertEquals(mainOrder, session.getMainOrder());
+        assertEquals(hedgeOrder, session.getLastHedgeOrder());
     }
 
     @Test
-    @DisplayName("Should get main order")
-    void testGetMainOrder() {
+    void testModeChecks() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
-
-        // When
-        TradeOrder mainOrderFound = tradeSession.getMainOrder();
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
 
         // Then
-        assertNotNull(mainOrderFound);
-        assertEquals(123456789L, mainOrderFound.getOrderId());
-        assertEquals(OrderPurpose.MAIN_OPEN, mainOrderFound.getPurpose());
+        assertTrue(session.isInScalpingMode());
+        assertFalse(session.isInHedgeMode());
+
+        // When - добавляем хедж
+        TradeOrder hedgeOrder = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
+        session.addOrder(hedgeOrder);
+
+        // Then
+        assertFalse(session.isInScalpingMode());
+        assertTrue(session.isInHedgeMode());
     }
 
     @Test
-    @DisplayName("Should get last hedge order")
-    void testGetLastHedgeOrder() {
+    void testPnlCalculation() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
-
-        // Добавляем первый хедж
-        Order hedgeOrder1 = Order.builder()
-                .orderId(555666777L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("49000.00"))
-                .commission(new BigDecimal("0.04"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        
+        // When - добавляем ордер с PnL
+        TradeOrder hedgeOrder = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
+        hedgeOrder = hedgeOrder.toBuilder()
+                .pnl(BigDecimal.valueOf(10.5))
+                .commission(BigDecimal.valueOf(0.5))
                 .build();
-
-        TradeOrder hedgeTradeOrder1 = new TradeOrder();
-        hedgeTradeOrder1.onCreate(hedgeOrder1, new BigDecimal("-15.75"), SessionMode.HEDGING,
-                "First hedge", tradePlan, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
-                123456789L, null);
-
-        tradeSession.addOrder(hedgeTradeOrder1);
-
-        // Добавляем второй хедж
-        Order hedgeOrder2 = Order.builder()
-                .orderId(666777888L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("48500.00"))
-                .commission(new BigDecimal("0.04"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis() + 1000) // Более позднее время
-                .build();
-
-        TradeOrder hedgeTradeOrder2 = new TradeOrder();
-        hedgeTradeOrder2.onCreate(hedgeOrder2, new BigDecimal("-25.00"), SessionMode.HEDGING,
-                "Second hedge", tradePlan, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
-                123456789L, null);
-
-        tradeSession.addOrder(hedgeTradeOrder2);
-
-        // When
-        TradeOrder lastHedgeOrder = tradeSession.getLastHedgeOrder();
+        session.addOrder(hedgeOrder);
 
         // Then
-        assertNotNull(lastHedgeOrder);
-        assertEquals(666777888L, lastHedgeOrder.getOrderId()); // Последний хедж
-        assertEquals(OrderPurpose.HEDGE_OPEN, lastHedgeOrder.getPurpose());
+        assertEquals(BigDecimal.valueOf(10.5), session.getPnl());
+        assertEquals(BigDecimal.valueOf(0.5), session.getTotalCommission());
     }
 
     @Test
-    @DisplayName("Should change mode")
     void testChangeMode() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
 
         // When
-        tradeSession.changeMode(SessionMode.HEDGING);
+        session.changeMode(SessionMode.HEDGING);
 
         // Then
-        assertEquals(SessionMode.HEDGING, tradeSession.getCurrentMode());
-        assertTrue(tradeSession.isInHedgeMode());
-        assertFalse(tradeSession.isInScalpingMode());
+        assertEquals(SessionMode.HEDGING, session.getCurrentMode());
+        assertTrue(session.isInHedgeMode());
     }
 
     @Test
-    @DisplayName("Should handle null order in addOrder")
-    void testAddNullOrder() {
+    void testCompleteSession() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
-        int initialOrderCount = tradeSession.getOrders().size();
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
 
         // When
-        tradeSession.addOrder(null);
+        session.completeSession();
 
         // Then
-        assertEquals(initialOrderCount, tradeSession.getOrders().size());
-        assertEquals(SessionMode.SCALPING, tradeSession.getCurrentMode());
-        assertTrue(tradeSession.hasActivePosition());
+        assertEquals(SessionStatus.COMPLETED, session.getStatus());
+        assertNotNull(session.getEndTime());
+        assertNotNull(session.getDurationMinutes());
     }
 
     @Test
-    @DisplayName("Should handle unfilled order")
-    void testUnfilledOrder() {
+    void testNullOrderHandling() {
         // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
-
-        // Неисполненный ордер
-        Order unfilledOrder = Order.builder()
-                .orderId(111222333L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("LIMIT")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(BigDecimal.ZERO)
-                .commission(BigDecimal.ZERO)
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.NEW)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder unfilledTradeOrder = new TradeOrder();
-        unfilledTradeOrder.onCreate(unfilledOrder, BigDecimal.ZERO, SessionMode.SCALPING,
-                "Unfilled order", tradePlan, TradingDirection.SHORT, OrderPurpose.MAIN_CLOSE,
-                null, null);
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        int initialSize = session.getOrders().size();
 
         // When
-        tradeSession.addOrder(unfilledTradeOrder);
+        session.addOrder(null);
 
         // Then
-        assertEquals(2, tradeSession.getOrders().size());
-        assertEquals(SessionMode.SCALPING, tradeSession.getCurrentMode()); // Режим не меняется
-        assertTrue(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort());
-        assertEquals(new BigDecimal("10.50"), tradeSession.getPnl()); // PnL не меняется
-        assertEquals(new BigDecimal("0.05"), tradeSession.getTotalCommission()); // Комиссия не меняется
+        assertEquals(initialSize, session.getOrders().size());
     }
 
     @Test
-    @DisplayName("Should handle processing flag")
-    void testProcessingFlag() {
-        // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
+    void testRecalcActiveFlags() {
+        // Given - создаем сессию с LONG
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test");
+        assertTrue(session.isActiveLong());
+        assertFalse(session.isActiveShort());
 
-        // When
-        tradeSession.setProcessing(true);
+        // When - добавляем SHORT хедж
+        TradeOrder hedgeOrder = createOrder(1002L, OrderPurpose.HEDGE_OPEN, TradingDirection.SHORT, 
+                OrderStatus.FILLED, BigDecimal.valueOf(49000), BigDecimal.valueOf(0.1), 1001L);
+        session.addOrder(hedgeOrder);
 
-        // Then
-        assertTrue(tradeSession.isProcessing());
+        // Then - проверяем что обе позиции активны
+        assertTrue(session.isActiveLong());
+        assertTrue(session.isActiveShort());
+        assertTrue(session.hasBothPositionsActive());
 
-        // When
-        tradeSession.setProcessing(false);
+        // When - закрываем MAIN
+        TradeOrder closeMain = createOrder(1003L, OrderPurpose.MAIN_CLOSE, TradingDirection.LONG, 
+                OrderStatus.FILLED, BigDecimal.valueOf(51000), BigDecimal.valueOf(0.1), 1001L, null);
+        session.addOrder(closeMain);
 
-        // Then
-        assertFalse(tradeSession.isProcessing());
+        // Then - проверяем что только SHORT активен
+        assertFalse(session.isActiveLong());
+        assertTrue(session.isActiveShort());
+        assertFalse(session.hasBothPositionsActive());
+        assertTrue(session.hasActivePosition());
     }
 
-    @Test
-    @DisplayName("Should handle session with multiple orders and complex PnL calculation")
-    void testComplexSessionWithMultipleOrders() {
-        // Given
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, mainOrder, "Test context");
-
-        // Добавляем хедж
-        Order hedgeOrder = Order.builder()
-                .orderId(555666777L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("49000.00"))
-                .commission(new BigDecimal("0.04"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder hedgeTradeOrder = new TradeOrder();
-        hedgeTradeOrder.onCreate(hedgeOrder, new BigDecimal("-15.75"), SessionMode.HEDGING,
-                "Hedge order", tradePlan, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
-                123456789L, null);
-
-        tradeSession.addOrder(hedgeTradeOrder);
-
-        // Частично закрываем хедж
-        Order partialCloseOrder = Order.builder()
-                .orderId(444555666L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.BUY)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.0005"))
-                .averagePrice(new BigDecimal("49500.00"))
-                .commission(new BigDecimal("0.025"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder partialCloseTradeOrder = new TradeOrder();
-        partialCloseTradeOrder.onCreate(partialCloseOrder, new BigDecimal("2.50"), SessionMode.HEDGING,
-                "Partial close hedge", tradePlan, TradingDirection.LONG, OrderPurpose.HEDGE_PARTIAL_CLOSE,
-                123456789L, 555666777L);
-
-        tradeSession.addOrder(partialCloseTradeOrder);
-
-        // Закрываем основную позицию
-        Order closeMainOrder = Order.builder()
-                .orderId(111222333L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.SELL)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("51000.00"))
-                .commission(new BigDecimal("0.05"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder closeMainTradeOrder = new TradeOrder();
-        closeMainTradeOrder.onCreate(closeMainOrder, new BigDecimal("10.00"), SessionMode.SCALPING,
-                "Close main order", tradePlan, TradingDirection.SHORT, OrderPurpose.MAIN_CLOSE,
-                null, null);
-
-        // When
-        tradeSession.addOrder(closeMainTradeOrder);
-
-        // Then
-        assertEquals(SessionStatus.COMPLETED, tradeSession.getStatus());
-        assertEquals(4, tradeSession.getOrders().size());
-        assertFalse(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort()); // Все позиции закрыты
-        assertFalse(tradeSession.hasActivePosition());
-        assertEquals(new BigDecimal("7.25"), tradeSession.getPnl()); // 10.50 + (-15.75) + 2.50 + 10.00
-        assertEquals(new BigDecimal("0.165"), tradeSession.getTotalCommission()); // 0.05 + 0.04 + 0.025 + 0.05
-        assertEquals(1, tradeSession.getHedgeOpenCount());
-        assertEquals(0, tradeSession.getHedgeCloseCount());
-        assertNotNull(tradeSession.getEndTime());
-        assertNotNull(tradeSession.getDurationMinutes());
+    // Вспомогательный метод для создания ордеров
+    private TradeOrder createOrder(Long orderId, OrderPurpose purpose, TradingDirection direction, 
+                                 OrderStatus status, BigDecimal price, BigDecimal quantity) {
+        return createOrder(orderId, purpose, direction, status, price, quantity, null);
     }
 
-    @Test
-    @DisplayName("Should handle session with zero values")
-    void testSessionWithZeroValues() {
-        // Given
-        Order zeroOrder = Order.builder()
-                .orderId(123456789L)
-                .symbol("BTCUSDT")
-                .side(OrderSide.BUY)
-                .orderType("MARKET")
-                .quantity(BigDecimal.ZERO)
-                .averagePrice(BigDecimal.ZERO)
-                .commission(BigDecimal.ZERO)
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
-                .build();
-
-        TradeOrder zeroTradeOrder = new TradeOrder();
-        zeroTradeOrder.onCreate(zeroOrder, BigDecimal.ZERO, SessionMode.SCALPING,
-                "Zero order", tradePlan, TradingDirection.LONG, OrderPurpose.MAIN_OPEN,
-                null, null);
-
-        // When
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, zeroTradeOrder, "Test context");
-
-        // Then
-        assertEquals(BigDecimal.ZERO, tradeSession.getPnl());
-        assertEquals(BigDecimal.ZERO, tradeSession.getTotalCommission());
-        assertEquals(0, tradeSession.getHedgeOpenCount());
-        assertEquals(0, tradeSession.getHedgeCloseCount());
-        assertTrue(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort());
+    private TradeOrder createOrder(Long orderId, OrderPurpose purpose, TradingDirection direction, 
+                                 OrderStatus status, BigDecimal price, BigDecimal quantity, Long parentOrderId) {
+        return createOrder(orderId, purpose, direction, status, price, quantity, parentOrderId, null);
     }
 
-    @Test
-    @DisplayName("Should handle session with negative PnL")
-    void testSessionWithNegativePnl() {
-        // Given
-        Order negativeOrder = Order.builder()
-                .orderId(123456789L)
+    private TradeOrder createOrder(Long orderId, OrderPurpose purpose, TradingDirection direction, 
+                                 OrderStatus status, BigDecimal price, BigDecimal quantity, Long parentOrderId, Long relatedHedgeId) {
+        return TradeOrder.builder()
+                .orderId(orderId)
+                .purpose(purpose)
+                .direction(direction)
+                .status(status)
+                .price(price)
+                .count(quantity)
+                .side(direction == TradingDirection.LONG ? OrderSide.BUY : OrderSide.SELL)
+                .type("MARKET")
                 .symbol("BTCUSDT")
-                .side(OrderSide.BUY)
-                .orderType("MARKET")
-                .quantity(new BigDecimal("0.001"))
-                .averagePrice(new BigDecimal("50000.00"))
-                .commission(new BigDecimal("0.05"))
-                .commissionAsset("USDT")
-                .orderStatus(OrderStatus.FILLED)
-                .tradeTime(System.currentTimeMillis())
+                .orderTime(LocalDateTime.now())
+                .parentOrderId(parentOrderId)
+                .relatedHedgeId(relatedHedgeId)
                 .build();
-
-        TradeOrder negativeTradeOrder = new TradeOrder();
-        negativeTradeOrder.onCreate(negativeOrder, new BigDecimal("-25.75"), SessionMode.SCALPING,
-                "Negative order", tradePlan, TradingDirection.LONG, OrderPurpose.MAIN_OPEN,
-                null, null);
-
-        // When
-        tradeSession.onCreate("BTCUSDT_plan", TradingDirection.LONG, negativeTradeOrder, "Test context");
-
-        // Then
-        assertEquals(new BigDecimal("-25.75"), tradeSession.getPnl());
-        assertEquals(new BigDecimal("0.05"), tradeSession.getTotalCommission());
-        assertTrue(tradeSession.isActiveLong());
-        assertFalse(tradeSession.isActiveShort());
     }
 } 

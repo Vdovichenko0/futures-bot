@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -41,7 +42,10 @@ public class TradePlanServiceImpl implements TradePlanService{
         if (repository.existsById(dto.getSymbol())) throw new IllegalArgumentException("Plan already exists.");
         binanceService.setLeverage(dto.getSymbol(),dto.getLeverage());
         binanceService.setMarginType(dto.getSymbol(), false); //params.put("marginType", isolated ? "ISOLATED" : "CROSSED");
-        SizeModel sizeModel = SymbolHelper.getSizeModel(dto.getSymbol());
+
+        Map<String, SizeModel> sizeModelMap = SymbolHelper.getSizeModels(List.of(dto.getSymbol())); //todo
+
+        SizeModel sizeModel = sizeModelMap.get(dto.getSymbol());
         TradeMetrics metrics = modelMapper.map(dto.getMetrics(), TradeMetrics.class);
         TradePlan plan = new TradePlan();
         plan.onCreate(dto.getSymbol(), dto.getAmountPerTrade(), dto.getLeverage(), metrics, sizeModel);

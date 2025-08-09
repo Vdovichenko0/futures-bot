@@ -44,16 +44,16 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
                 : OrderSide.BUY;
 
         //create order
-        Order orderOpen = orderService.createOrder(coin, count.doubleValue(), closeSide, true);
-
+//        Order orderOpen = orderService.createOrder(coin, count.doubleValue(), closeSide, true);
+        Order orderClosed = orderService.closeOrder(entryOrder);
         //check filled
-        boolean filled = waitForFilledOrder(orderOpen, 15000, 2000);
+        boolean filled = waitForFilledOrder(orderClosed, 15000, 200);
         if (!filled) {
-            log.warn("Order {} was not filled in time", orderOpen.getOrderId());
+            log.warn("Order {} was not filled in time", orderClosed.getOrderId());
             return session;
         }
 
-        Order filledOrder = orderService.getOrder(orderOpen.getOrderId());
+        Order filledOrder = orderService.getOrder(orderClosed.getOrderId());
 
         //calc pnl
         BigDecimal pnlFraction;
@@ -95,7 +95,7 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
         count = count.divide(lotSize, 0, RoundingMode.DOWN).multiply(lotSize);
         OrderSide side = direction.equals(TradingDirection.SHORT) ? OrderSide.SELL : OrderSide.BUY;
         Order orderOpen = orderService.createOrder(coin, count.doubleValue(), side, true);
-        boolean filled = waitForFilledOrder(orderOpen, 5000, 500);
+        boolean filled = waitForFilledOrder(orderOpen, 5000, 200);
         if (!filled) {
             log.warn("Order {} was not filled in time", orderOpen.getOrderId());
             return session;

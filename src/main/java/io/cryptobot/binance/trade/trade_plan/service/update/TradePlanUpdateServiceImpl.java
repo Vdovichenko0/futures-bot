@@ -14,6 +14,7 @@ import io.cryptobot.configs.locks.TradePlanLockRegistry;
 import io.cryptobot.helpers.SymbolHelper;
 import io.cryptobot.utils.LockType;
 import io.cryptobot.utils.lock.single_lock.WithLock;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -173,7 +174,8 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
 
     @Override
     @Transactional
-    @Scheduled(initialDelay = 10_000, fixedRate = 2, timeUnit = TimeUnit.HOURS)
+    @PostConstruct
+    @Scheduled(fixedRate = 2, timeUnit = TimeUnit.HOURS)
     public void scheduledUpdateSizes() {
         List<TradePlan> tradePlans = repository.findAll();
         if (tradePlans.isEmpty()) {
@@ -217,7 +219,8 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
 
     @Override
     @Transactional
-    @Scheduled(initialDelay = 10_000, fixedRate = 6, timeUnit = TimeUnit.HOURS)
+    @PostConstruct
+    @Scheduled(fixedRate = 6, timeUnit = TimeUnit.HOURS)
     public void scheduledSendRequestUpdateLeverage() {
         List<TradePlan> tradePlans = repository.findAll();
         if (tradePlans.isEmpty()) {

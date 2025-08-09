@@ -54,10 +54,10 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
     private static final BigDecimal PERCENTAGE_MULTIPLIER = BigDecimal.valueOf(100);          // Множитель для процентов
     
     // Новые параметры логики
-    private static final BigDecimal NEW_TRAILING_ACTIVATION_THRESHOLD = BigDecimal.valueOf(0.1);  // Минимальный PnL для трейлинга 0.1%
-    private static final BigDecimal NEW_TRAILING_CLOSE_RATIO = BigDecimal.valueOf(0.7);          // Закрытие при 30% отката от максимума (70% от макс)
-    private static final BigDecimal HEDGE_OPEN_THRESHOLD = BigDecimal.valueOf(-0.03);            // Открытие хеджа при -0.03%
-    private static final BigDecimal PROFITABLE_POSITION_THRESHOLD = BigDecimal.valueOf(0.1);     // Порог прибыльности +0.1% для закрытия убыточной
+    private static final BigDecimal NEW_TRAILING_ACTIVATION_THRESHOLD = BigDecimal.valueOf(0.15);// Минимальный PnL для трейлинга 0.1%
+    private static final BigDecimal NEW_TRAILING_CLOSE_RATIO = BigDecimal.valueOf(0.65);         // Закрытие при 30% отката от максимума (70% от макс)
+    private static final BigDecimal HEDGE_OPEN_THRESHOLD = BigDecimal.valueOf(-0.5);             // Открытие хеджа при -0.3%
+    private static final BigDecimal PROFITABLE_POSITION_THRESHOLD = BigDecimal.valueOf(0.15);    // Порог прибыльности +0.1% для закрытия убыточной
     
     // Старые параметры (удалены, так как не используются в новой логике)
 

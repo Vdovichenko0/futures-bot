@@ -1,5 +1,6 @@
 package io.cryptobot.binance.trade.trade_plan.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
@@ -15,6 +16,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @ToString
 @Document(collection = "trade-plan")
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class TradePlan {
     @Id
     private String symbol;

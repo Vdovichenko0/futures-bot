@@ -1,6 +1,5 @@
 package io.cryptobot.binance.trade.session.service;
 
-import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.session.model.TradeOrder;
 import io.cryptobot.binance.trade.session.model.TradeSession;
@@ -19,8 +18,6 @@ public interface TradeSessionService {
     List<TradeSession> getAll();
 
     TradeSession addOrder(String idSession, TradeOrder order);
-
-    TradeSession setMode(String idSession, SessionMode newMode);
 
     TradeSession closeSession(String idSession);
 

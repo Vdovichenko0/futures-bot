@@ -20,7 +20,7 @@ public interface TradePlanUpdateService {
 
     void setActiveTrue(String idPlan, String idNewSession);
 
-    void setActiveTrueFalse(String idPlan);
+    void setActiveFalse(String idPlan);
 
     void scheduledUpdateSizes();
 

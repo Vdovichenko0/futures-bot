@@ -1,5 +1,6 @@
 package io.cryptobot.binance.trade.session.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.cryptobot.binance.order.enums.OrderPurpose;
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
@@ -20,6 +21,7 @@ import java.time.ZoneId;
 @AllArgsConstructor
 @ToString
 @EqualsAndHashCode(of = "orderId")
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class TradeOrder {
     private Long orderId; // binance id
     private String creationContext;

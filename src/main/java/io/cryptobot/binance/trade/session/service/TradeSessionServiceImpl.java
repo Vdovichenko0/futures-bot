@@ -1,7 +1,6 @@
 package io.cryptobot.binance.trade.session.service;
 
 import io.cryptobot.binance.trade.session.dao.TradeSessionRepository;
-import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.SessionStatus;
 import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.session.exceptions.TradeSessionNotFoundException;
@@ -63,7 +62,8 @@ public class TradeSessionServiceImpl implements TradeSessionService {
     @WithLock(registry = LockType.SESSION, keyParam = "idSession")
     public TradeSession addOrder(String idSession, TradeOrder order) {
         log.info("Adding order {} to session: {}", order.getOrderId(), idSession);
-
+        //todo check asset commission - if not stable - convert
+        // or after all when session closed
         TradeSession session = getById(idSession);
 
         if (order.getOrderId() == null) {
@@ -80,22 +80,11 @@ public class TradeSessionServiceImpl implements TradeSessionService {
         TradeSession savedSession = repository.save(session);
         log.info("Added order {} to session {}, new PnL: {}", order.getOrderId(), idSession, savedSession.getPnl());
 
-        return savedSession;
-    }
-
-    @Override
-    @Transactional
-    @WithLock(registry = LockType.SESSION, keyParam = "idSession")
-    public TradeSession setMode(String idSession, SessionMode newMode) {
-        log.info("Setting mode {} for session: {}", newMode, idSession);
-
-        TradeSession session = getById(idSession);
-
-        session.changeMode(newMode);
-
-        TradeSession savedSession = repository.save(session);
-        log.info("Changed mode to {} for session: {}", newMode, idSession);
-
+        //open plan for analysis etc. todo one method
+        if (savedSession.getStatus().equals(SessionStatus.COMPLETED)){
+            tradePlanUpdateService.setActiveFalse(savedSession.getTradePlan());
+            tradePlanUpdateService.addProfit(savedSession.getTradePlan(), savedSession.getPnl().subtract(savedSession.getTotalCommission()).stripTrailingZeros());
+        }
         return savedSession;
     }
 
@@ -117,7 +106,8 @@ public class TradeSessionServiceImpl implements TradeSessionService {
         TradeSession savedSession = repository.save(session);
         log.info("Closed session: {}, final PnL: {}, duration: {} minutes", idSession, savedSession.getPnl(), savedSession.getDurationMinutes());
 
-        tradePlanUpdateService.setActiveTrueFalse(savedSession.getTradePlan());
+        tradePlanUpdateService.setActiveFalse(savedSession.getTradePlan());
+        //todo send to monitor - remove session from monitoring
         return savedSession;
     }
 }

@@ -165,7 +165,7 @@ public class TradePlanUpdateServiceImpl implements TradePlanUpdateService {
     @Override
     @Transactional
     @WithLock(registry = LockType.PLAN, keyParam = "idPlan")
-    public void setActiveTrueFalse(String idPlan) {
+    public void setActiveFalse(String idPlan) {
         TradePlan plan = tradePlanGetService.getPlan(idPlan);
         plan.openActive();
         repository.save(plan);

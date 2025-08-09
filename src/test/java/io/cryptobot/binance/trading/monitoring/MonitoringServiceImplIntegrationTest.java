@@ -317,8 +317,6 @@ class MonitoringServiceImplIntegrationTest {
             return s;
         }
         @Override
-        public TradeSession setMode(String idSession, io.cryptobot.binance.trade.session.enums.SessionMode newMode) { return getById(idSession); }
-        @Override
         public TradeSession closeSession(String idSession) {
             TradeSession s = getById(idSession);
             s.completeSession();

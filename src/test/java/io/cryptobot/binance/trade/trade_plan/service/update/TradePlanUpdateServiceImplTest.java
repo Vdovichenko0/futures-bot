@@ -381,7 +381,7 @@ class TradePlanUpdateServiceImplTest {
         when(tradePlanGetService.getPlan(symbol)).thenReturn(tradePlan);
 
         // When
-        tradePlanUpdateService.setActiveTrueFalse(symbol);
+        tradePlanUpdateService.setActiveFalse(symbol);
 
         // Then
         assertFalse(tradePlan.getActive()); // openActive не меняет состояние в тестах
@@ -573,5 +573,171 @@ class TradePlanUpdateServiceImplTest {
         // Verify interactions
         verify(tradePlanGetService).getPlan(symbol);
         verify(repository, never()).save(any(TradePlan.class));
+    }
+
+    @Test
+    @DisplayName("Should handle closing active plan with exception")
+    void testClosePlanWhenActiveWithException() {
+        // Given
+        String symbol = "BTCUSDT";
+        // Делаем план активным
+        tradePlan.closeActive("active-session-123"); // Активируем план
+
+        when(tradePlanGetService.getPlan(symbol)).thenReturn(tradePlan);
+
+        // When & Then
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> tradePlanUpdateService.closePlan(symbol));
+
+        assertEquals("Cant close plan when he active, need wait when session be closed", exception.getMessage());
+
+        // Verify interactions
+        verify(tradePlanGetService).getPlan(symbol);
+        verify(repository, never()).save(any(TradePlan.class));
+        verify(cacheManager, never()).evictPlanAndListCaches(anyString());
+    }
+
+    @Test
+    @DisplayName("Should add zero profit successfully")
+    void testAddZeroProfit() {
+        // Given
+        String symbol = "BTCUSDT";
+        BigDecimal zeroProfit = BigDecimal.ZERO;
+
+        when(tradePlanGetService.getPlan(symbol)).thenReturn(tradePlan);
+
+        // When
+        tradePlanUpdateService.addProfit(symbol, zeroProfit);
+
+        // Then
+        assertEquals(0, BigDecimal.ZERO.compareTo(tradePlan.getPnl()));
+
+        // Verify interactions
+        verify(tradePlanGetService).getPlan(symbol);
+        verify(repository).save(tradePlan);
+        verify(cacheManager).evictPlanAndListCaches(symbol);
+    }
+
+    @Test
+    @DisplayName("Should add multiple profits correctly")
+    void testAddMultipleProfits() {
+        // Given
+        String symbol = "BTCUSDT";
+        BigDecimal firstProfit = new BigDecimal("30.0");
+        BigDecimal secondProfit = new BigDecimal("20.0");
+        BigDecimal expectedTotal = new BigDecimal("50.0");
+
+        when(tradePlanGetService.getPlan(symbol)).thenReturn(tradePlan);
+
+        // When
+        tradePlanUpdateService.addProfit(symbol, firstProfit);
+        tradePlanUpdateService.addProfit(symbol, secondProfit);
+
+        // Then
+        assertEquals(0, expectedTotal.compareTo(tradePlan.getPnl()));
+
+        // Verify interactions
+        verify(tradePlanGetService, times(2)).getPlan(symbol);
+        verify(repository, times(2)).save(tradePlan);
+        verify(cacheManager, times(2)).evictPlanAndListCaches(symbol);
+    }
+
+    @Test
+    @DisplayName("Should handle very large profit values")
+    void testAddVeryLargeProfit() {
+        // Given
+        String symbol = "BTCUSDT";
+        BigDecimal largeProfit = new BigDecimal("999999999.999999");
+
+        when(tradePlanGetService.getPlan(symbol)).thenReturn(tradePlan);
+
+        // When
+        tradePlanUpdateService.addProfit(symbol, largeProfit);
+
+        // Then
+        assertEquals(0, largeProfit.compareTo(tradePlan.getPnl()));
+
+        // Verify interactions
+        verify(tradePlanGetService).getPlan(symbol);
+        verify(repository).save(tradePlan);
+        verify(cacheManager).evictPlanAndListCaches(symbol);
+    }
+
+    @Test
+    @DisplayName("Should handle very large negative profit values")
+    void testAddVeryLargeNegativeProfit() {
+        // Given
+        String symbol = "BTCUSDT";
+        BigDecimal largeNegativeProfit = new BigDecimal("-999999999.999999");
+
+        when(tradePlanGetService.getPlan(symbol)).thenReturn(tradePlan);
+
+        // When
+        tradePlanUpdateService.addProfit(symbol, largeNegativeProfit);
+
+        // Then
+        assertEquals(0, largeNegativeProfit.compareTo(tradePlan.getPnl()));
+
+        // Verify interactions
+        verify(tradePlanGetService).getPlan(symbol);
+        verify(repository).save(tradePlan);
+        verify(cacheManager).evictPlanAndListCaches(symbol);
+    }
+
+    @Test
+    @DisplayName("Should handle metrics update with edge case values")
+    void testUpdateMetricsWithEdgeCaseValues() {
+        // Given
+        String symbol = "BTCUSDT";
+        TradeMetricsDto metricsDto = new TradeMetricsDto();
+        metricsDto.setMinImbalanceLong(1.0); // Максимально допустимое значение
+        metricsDto.setMaxImbalanceShort(0.0); // Минимально допустимое значение
+        metricsDto.setEmaSensitivity(0.0); // Минимум
+        metricsDto.setVolRatioThreshold(100.0); // Максимум
+        metricsDto.setVolWindowSec(600); // Максимум
+        metricsDto.setDepthLevels(500); // Максимум
+
+        when(tradePlanGetService.getPlan(symbol)).thenReturn(tradePlan);
+
+        // When
+        TradePlan result = tradePlanUpdateService.updateMetrics(symbol, metricsDto);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(1.0, result.getMetrics().getMinImbalanceLong());
+        assertEquals(0.0, result.getMetrics().getMaxImbalanceShort());
+        assertEquals(0.0, result.getMetrics().getEmaSensitivity());
+        assertEquals(100.0, result.getMetrics().getVolRatioThreshold());
+        assertEquals(600, result.getMetrics().getVolWindowSec());
+        assertEquals(500, result.getMetrics().getDepthLevels());
+
+        // Verify interactions
+        verify(tradePlanGetService).getPlan(symbol);
+        verify(repository).save(tradePlan);
+    }
+
+    @Test
+    @DisplayName("Should handle concurrent leverage updates correctly")
+    void testConcurrentLeverageUpdates() {
+        // Given
+        String symbol = "BTCUSDT";
+        int firstLeverage = 15;
+        int secondLeverage = 25;
+
+        when(tradePlanGetService.getPlan(symbol)).thenReturn(tradePlan);
+
+        // When
+        tradePlanUpdateService.updateLeverage(symbol, firstLeverage);
+        tradePlanUpdateService.updateLeverage(symbol, secondLeverage);
+
+        // Then
+        assertEquals(secondLeverage, tradePlan.getLeverage()); // Последнее значение
+
+        // Verify interactions
+        verify(tradePlanGetService, times(2)).getPlan(symbol);
+        verify(binanceService).setLeverage(symbol, firstLeverage);
+        verify(binanceService).setLeverage(symbol, secondLeverage);
+        verify(repository, times(2)).save(tradePlan);
+        verify(cacheManager, times(2)).evictPlanAndListCaches(symbol);
     }
 } 

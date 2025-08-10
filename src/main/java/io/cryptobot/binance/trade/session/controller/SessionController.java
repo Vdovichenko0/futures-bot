@@ -4,12 +4,15 @@ import io.cryptobot.binance.trade.session.dto.PnlResultDto;
 import io.cryptobot.binance.trade.session.dto.SessionAllDto;
 import io.cryptobot.binance.trade.session.dto.SessionDto;
 import io.cryptobot.binance.trade.session.enums.SessionStatus;
+import io.cryptobot.binance.trade.session.model.TradeOrder;
 import io.cryptobot.binance.trade.session.service.get.TradeSessionGetService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @CrossOrigin(origins = "*")
@@ -54,5 +57,28 @@ public class SessionController {
     @ResponseStatus(HttpStatus.OK)
     public PnlResultDto calcPnlByPlan(@PathVariable String plan) {
         return sessionGetService.calcPnlByPlan(plan);
+    }
+
+    @GetMapping("/{idSession}/orders")
+    @ResponseStatus(HttpStatus.OK)
+    public List<TradeOrder> getOrders(@PathVariable String idSession) {
+        return sessionGetService.getOrders(idSession);
+    }
+
+    @GetMapping("/pnl/time-range")
+    @ResponseStatus(HttpStatus.OK)
+    public PnlResultDto calcPnlByTimeRange(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return sessionGetService.calcPnlByTimeRange(from, to);
+    }
+
+    @GetMapping("/pnl/time-range/symbol/{symbol}")
+    @ResponseStatus(HttpStatus.OK)
+    public PnlResultDto calcPnlByTimeRangeAndSymbol(
+            @PathVariable String symbol,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return sessionGetService.calcPnlByTimeRangeAndSymbol(from, to, symbol);
     }
 }

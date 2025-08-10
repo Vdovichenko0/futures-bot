@@ -48,7 +48,7 @@ public class MonitoringServiceImpl implements MonitoringService {
     // Per-session order cooldown to avoid rapid consecutive open/close calls
     private final Map<String, Long> lastOrderAtMsBySession = new HashMap<>();
 
-    @PostConstruct
+    // @PostConstruct
     public void init() {
         List<TradeSession> ses = sessionService.getAllActive();
         for (TradeSession tradeSession : ses) {

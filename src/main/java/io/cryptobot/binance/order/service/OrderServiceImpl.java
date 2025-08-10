@@ -142,8 +142,13 @@ public class OrderServiceImpl implements OrderService{
                 // если side == BUY → LONG, если SELL → SHORT
                 String positionSide = side.equals(OrderSide.BUY) ? "LONG" : "SHORT";
                 parameters.put("positionSide", positionSide);
+                
+                log.info("🔧 Opening position: symbol={}, side={}, positionSide={}, quantity={}", 
+                        symbol, side, positionSide, amount);
             } else {
                 parameters.remove("positionSide");
+                log.info("🔧 Opening position (non-hedge): symbol={}, side={}, quantity={}", 
+                        symbol, side, amount);
             }
 
             String result = client.account().newOrder(parameters);
@@ -247,7 +252,12 @@ public class OrderServiceImpl implements OrderService{
         params.put("quantity", qtyToClose.toPlainString());
 
         // В hedge model нужно указать positionSide точно таким же, как у исходной позиции (LONG/SHORT)
-            params.put("positionSide", order.getDirection().toString());
+        // TradeOrder.direction уже в правильном формате (LONG/SHORT)
+        String positionSide = order.getDirection().toString();
+        params.put("positionSide", positionSide);
+        
+        log.info("🔧 Closing position: symbol={}, side={}, positionSide={}, quantity={}", 
+                order.getSymbol(), closingSide, positionSide, qtyToClose);
 
 
         String response = client.account().newOrder(params);
@@ -261,6 +271,14 @@ public class OrderServiceImpl implements OrderService{
 
     } catch (Exception e) {
         log.error("Failed to close order: {}", order, e);
+        
+        // Обработка специфической ошибки Binance -2022 (ReduceOnly Order is rejected)
+        if (e.getMessage() != null && e.getMessage().contains("-2022")) {
+            log.warn("⚠️ Position already closed or doesn't exist (error -2022) for order: {}", order.getOrderId());
+            // Возвращаем null чтобы TradingUpdatesService мог обработать это
+            return null;
+        }
+        
         return null;
     }
 }

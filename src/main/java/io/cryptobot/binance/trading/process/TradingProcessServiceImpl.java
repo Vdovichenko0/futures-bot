@@ -13,6 +13,7 @@ import io.cryptobot.binance.trade.session.service.TradeSessionService;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
 import io.cryptobot.binance.trading.monitoring.v2.MonitoringServiceV2;
+import io.cryptobot.binance.trading.monitoring.v3.MonitoringServiceV3;
 import io.cryptobot.market_data.ticker24h.Ticker24hService;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +33,7 @@ public class TradingProcessServiceImpl implements TradingProcessService{
     private final TradeSessionService sessionService;
     private final Ticker24hService ticker24hService;
     private final OrderService orderService;
-    private final MonitoringServiceV2 monitoringService;
+    private final MonitoringServiceV3 monitoringService;
     private final TradePlanGetService tradePlanGetService;
     @Getter
     @Setter
@@ -41,11 +42,11 @@ public class TradingProcessServiceImpl implements TradingProcessService{
     @Setter
     private int intervalMillis = 200;
 
-    @Scheduled(initialDelay = 10_000)
-    public void init(){
-        TradePlan plan = tradePlanGetService.getPlan("LINKUSDC");
-        openOrder(plan, TradingDirection.SHORT, BigDecimal.valueOf(21.414), "test");
-    }
+//    @Scheduled(initialDelay = 10_000)
+//    public void init(){
+//        TradePlan plan = tradePlanGetService.getPlan("LINKUSDC");
+//        openOrder(plan, TradingDirection.SHORT, BigDecimal.valueOf(21.414), "test");
+//    }
 
     @Override
     @Transactional
@@ -108,11 +109,16 @@ public class TradingProcessServiceImpl implements TradingProcessService{
         
         long startTime = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTime < maxWaitMillis) {
-            Order updated = orderService.getOrder(order.getOrderId());
-            if (updated != null && updated.getOrderStatus().equals(OrderStatus.FILLED)) {
-                log.info("✅ Order {} is filled", order.getOrderId());
-                return true;
+            try {
+                Order updated = orderService.getOrder(order.getOrderId());
+                if (updated != null && updated.getOrderStatus() != null && updated.getOrderStatus().equals(OrderStatus.FILLED)) {
+                    log.info("✅ Order {} is filled", order.getOrderId());
+                    return true;
+                }
+            } catch (Exception e) {
+                log.warn("⚠️ Error getting order status for {}: {}", order.getOrderId(), e.getMessage());
             }
+            
             try {
                 Thread.sleep(intervalMillis);
             } catch (InterruptedException e) {

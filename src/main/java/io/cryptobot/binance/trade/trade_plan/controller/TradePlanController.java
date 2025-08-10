@@ -1,5 +1,6 @@
 package io.cryptobot.binance.trade.trade_plan.controller;
 
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.trade_plan.dto.TradeMetricsDto;
 import io.cryptobot.binance.trade.trade_plan.dto.TradePlanCreateDto;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
@@ -76,5 +77,12 @@ public class TradePlanController {
     @ResponseStatus(HttpStatus.OK)
     public void closePlan(@PathVariable String idPlan) {
         tradePlanUpdateService.closePlan(idPlan);
+    }
+
+    //todo remove
+    @GetMapping("/start-session/{coin}")
+    @ResponseStatus(HttpStatus.OK)
+    public void startSession(@PathVariable String coin,@RequestParam String context,@RequestParam TradingDirection direction) {
+        tradePlanService.startSession(coin, context, direction);
     }
 }

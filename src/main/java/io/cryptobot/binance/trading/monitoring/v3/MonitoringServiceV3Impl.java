@@ -1,4 +1,4 @@
-package io.cryptobot.binance.trading.monitoring.v2;
+package io.cryptobot.binance.trading.monitoring.v3;
 
 import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.TradingDirection;
@@ -17,34 +17,40 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
+import java.util.stream.Collectors;
+
 import io.cryptobot.binance.trade.session.enums.SessionStatus;
 import io.cryptobot.binance.order.enums.OrderPurpose;
 
 /**
- * MonitoringServiceV2Impl - Сервис мониторинга торговых сессий версии 2
- * 
- * НОВАЯ ЛОГИКА ТОРГОВЛИ:
- * 
- * 1. ОДНА ПОЗИЦИЯ:
- *    - Трейлинг активируется при PnL >= 0.1%
- *    - Закрытие при откате 30% от максимального PnL
- *    - Хедж открывается при PnL <= -0.03%
- * 
- * 2. ДВЕ ПОЗИЦИИ:
- *    - При достижении одной позицией +0.1% PnL закрывается убыточная позиция
- *    - Трейлинг прибыльной позиции с теми же параметрами (0.1% активация, 30% откат)
- * 
- * 3. ЗАКРЫТИЕ ОРДЕРОВ:
- *    - Два запроса на закрытие отправляются по очереди без ожидания
- *    - Валидация типов ордеров и направлений
- *    - Защита от багов с помощью проверок состояний
+ * MonitoringServiceV3Impl — Новая стратегия мониторинга V3
+ * <p>
+ * Состояния и переходы:
+ * <p>
+ * 1) Одна позиция (SCALPING):
+ * - Трейлинг: при достижении порога +TRAILING_ACTIVATION_THRESHOLD_PCT активируем трейлинг.
+ * Закрываем по откату TRAILING_CLOSE_RETRACE_RATIO от максимума PnL.
+ * - Хедж: при падении до SINGLE_POSITION_HEDGE_THRESHOLD_PCT открываем хедж в противоположную сторону.
+ * <p>
+ * 2) Две позиции (HEDGING):
+ * - Если любая позиция достигла +TWO_POS_PROFITABLE_ACTIVATION_PCT:
+ * включаем трейлинг на прибыльной (закрытие по откату) и запускаем сопровождение убыточной (follow-up).
+ * <p>
+ * 3) Сопровождение убыточной (follow-up) после закрытия прибыльной:
+ * - Базовая точка baseline фиксируется в момент перехода к одной позиции.
+ * - Если убыточная ухудшилась на FOLLOW_UP_WORSEN_DELTA_PCT от baseline — открываем хедж.
+ * - Если убыточная улучшилась на FOLLOW_UP_IMPROVE_DELTA_PCT — включаем ей трейлинг и открываем хедж.
+ * - Если убыточная достигла 1/3 опорной прибыли пары (FOLLOW_UP_ONE_THIRD_PROFIT_RATIO от profitReferencePnl)
+ * — закрываем убыточную и продолжаем скальпинг.
+ * <p>
+ * Все ключевые пороги и коэффициенты вынесены в константы выше для удобной настройки.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
+public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
 
-    // === КОНСТАНТЫ МОНИТОРИНГА ===
+    // === КОНСТАНТЫ МОНИТОРИНГА И СТРАТЕГИИ (ЛЕГКО МЕНЯТЬ) ===
 
     // Интервалы и таймауты
     private static final long MONITORING_INTERVAL_MS = 1_000;                   // Интервал мониторинга 1 сек
@@ -52,13 +58,22 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
 
     // PnL пороги и коэффициенты
     private static final BigDecimal PERCENTAGE_MULTIPLIER = BigDecimal.valueOf(100);          // Множитель для процентов
-    
-    // Новые параметры логики
-    private static final BigDecimal NEW_TRAILING_ACTIVATION_THRESHOLD = BigDecimal.valueOf(0.15);// Минимальный PnL для трейлинга 0.1%
-    private static final BigDecimal NEW_TRAILING_CLOSE_RATIO = BigDecimal.valueOf(0.65);         // Закрытие при 30% отката от максимума (70% от макс)
-    private static final BigDecimal HEDGE_OPEN_THRESHOLD = BigDecimal.valueOf(-0.5);             // Открытие хеджа при -0.3%
-    private static final BigDecimal PROFITABLE_POSITION_THRESHOLD = BigDecimal.valueOf(0.15);    // Порог прибыльности +0.1% для закрытия убыточной
-    
+
+    // Трейлинг
+    private static final BigDecimal TRAILING_ACTIVATION_THRESHOLD_PCT = BigDecimal.valueOf(0.20); // Активация трейлинга при +0.2%
+    private static final BigDecimal TRAILING_CLOSE_RETRACE_RATIO = BigDecimal.valueOf(0.60);      // Закрытие при 40% отката от максимума
+
+    // Хедж при одной позиции
+    private static final BigDecimal SINGLE_POSITION_HEDGE_THRESHOLD_PCT = BigDecimal.valueOf(-0.20); // Хедж при -0.2%
+
+    // Две позиции: активация трейлинга для прибыльной при достижении порога
+    private static final BigDecimal TWO_POS_PROFITABLE_ACTIVATION_PCT = BigDecimal.valueOf(0.20);    // Любая достигла +0.1% — трейлим и закрываем
+
+    // Сопровождение убыточной после закрытия прибыльной
+    private static final BigDecimal FOLLOW_UP_WORSEN_DELTA_PCT = BigDecimal.valueOf(-0.10); // Ухудшилась на -0.1% — хедж
+    private static final BigDecimal FOLLOW_UP_IMPROVE_DELTA_PCT = BigDecimal.valueOf(0.10); // Улучшилась на +0.1% — включаем трейлинг и открываем хедж
+    private static final BigDecimal FOLLOW_UP_ONE_THIRD_PROFIT_RATIO = new BigDecimal("0.3333"); // Закрыть убыточную при достижении 1/3 прибыли пары
+
     // Старые параметры (удалены, так как не используются в новой логике)
 
     private final TradeSessionService sessionService;
@@ -68,14 +83,15 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
     private final Map<String, TradeSession> sessions = new HashMap<>();
     // Per-session order cooldown to avoid rapid consecutive open/close calls
     private final Map<String, Long> lastOrderAtMsBySession = new HashMap<>();
+    // Сопровождение убыточной позиции после закрытия прибыльной
+    private final Map<String, FollowUpState> followUpBySession = new HashMap<>();
 
-    // @PostConstruct
+    @PostConstruct
     public void init() {
         List<TradeSession> ses = sessionService.getAllActive();
         for (TradeSession tradeSession : ses) {
             sessions.put(tradeSession.getId(), tradeSession);
         }
-
     }
 
     @Override
@@ -118,7 +134,7 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
         boolean bothActive = session.hasBothPositionsActive();
         boolean anyActive = session.hasActivePosition();
 
-        log.debug("🔍 SESSION LOGIC DEBUG: Session {} - bothActive={}, anyActive={}, activeLong={}, activeShort={}", 
+        log.debug("🔍 SESSION LOGIC DEBUG: Session {} - bothActive={}, anyActive={}, activeLong={}, activeShort={}",
                 session.getId(), bothActive, anyActive, session.isActiveLong(), session.isActiveShort());
 
         // Если есть обе позиции - режим двух позиций (важно обрабатывать ДО поиска activeOrder)
@@ -160,7 +176,6 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
         log.debug("⏳ Session {}: No active positions", session.getId());
 
 
-
         // log.debug("✅ Session {}: Monitoring cycle completed successfully", session.getId());
     }
 
@@ -175,7 +190,7 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
 
         // Трейлинг активируется при PnL >= 0.1%
         boolean isTrailingActive = order.getTrailingActive() != null && order.getTrailingActive();
-        if (currentPnl.compareTo(NEW_TRAILING_ACTIVATION_THRESHOLD) >= 0 && !isTrailingActive) {
+        if (currentPnl.compareTo(TRAILING_ACTIVATION_THRESHOLD_PCT) >= 0 && !isTrailingActive) {
             log.info("🚀 NEW ACTIVATE trailing (PnL: {}%)", currentPnl);
             order.setTrailingActive(true);
             order.setPnlHigh(currentPnl);
@@ -184,7 +199,7 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
 
         // Проверяем откат 30% от максимума (NEW_TRAILING_CLOSE_RATIO = 0.7, значит 30% откат)
         if (isTrailingActive && order.getPnlHigh() != null) {
-            BigDecimal retrace = order.getPnlHigh().multiply(NEW_TRAILING_CLOSE_RATIO);
+            BigDecimal retrace = order.getPnlHigh().multiply(TRAILING_CLOSE_RETRACE_RATIO);
             if (currentPnl.compareTo(retrace) <= 0) {
                 log.info("📉 NEW TRAILING RETRACE (high: {}%, current: {}%, retrace: {}%)",
                         order.getPnlHigh(),
@@ -223,8 +238,8 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
             // Помечаем сессию как обрабатываемую
             session.setProcessing(true);
 
-            log.info("🔧 Executing close position for session {}: orderId={}, reason={}",
-                    session.getId(), orderToClose.getOrderId(), reason);
+            log.info("🔧 Executing close position for session {}: orderId={}, direction={}, purpose={}, reason={}",
+                    session.getId(), orderToClose.getOrderId(), orderToClose.getDirection(), orderToClose.getPurpose(), reason);
 
             // Определяем правильный OrderPurpose в зависимости от типа ордера
             OrderPurpose orderPurpose;
@@ -285,7 +300,7 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
                 log.warn("⏱️ Session {} → ORDER COOLDOWN active, skip two orders close", session.getId());
                 return;
             }
-            
+
             // Помечаем сессию как обрабатываемую
             session.setProcessing(true);
 
@@ -293,7 +308,7 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
                     session.getId(), firstOrder.getOrderId(), secondOrder.getOrderId(), reason);
 
             BigDecimal currentPrice = ticker24hService.getPrice(session.getTradePlan());
-            
+
             // Определяем правильные OrderPurpose для каждого ордера
             OrderPurpose firstOrderPurpose = determineCloseOrderPurpose(firstOrder);
             OrderPurpose secondOrderPurpose = determineCloseOrderPurpose(secondOrder);
@@ -395,13 +410,13 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
         if (!isValidOrder(order)) {
             return false;
         }
-        
+
         // Проверяем, что это открывающий ордер
         if (order.getPurpose() != OrderPurpose.MAIN_OPEN && order.getPurpose() != OrderPurpose.HEDGE_OPEN) {
             log.warn("⚠️ Order {} is not an opening order, purpose: {}", order.getOrderId(), order.getPurpose());
             return false;
         }
-        
+
         return true;
     }
 
@@ -532,6 +547,7 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
                 // Удаляем завершенную сессию из мониторинга
                 sessions.remove(updatedSession.getId());
                 log.info("✅ Session {} completed and removed from monitoring", updatedSession.getId());
+                followUpBySession.remove(updatedSession.getId());
             } else {
                 // Обновляем сессию в мониторинге
                 sessions.put(updatedSession.getId(), updatedSession);
@@ -550,30 +566,32 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
         boolean activeLong = session.isActiveLong();
         boolean activeShort = session.isActiveShort();
 
+        log.debug("🔍 getActiveOrderForMonitoring: session={}, activeLong={}, activeShort={}, direction={}",
+                session.getId(), activeLong, activeShort, session.getDirection());
+
         if (!activeLong && !activeShort) {
+            log.debug("🔍 No active positions found");
             return null;
         }
 
-        // Если активна только LONG позиция
+        // Если активна только LONG позиция — мониторим последний активный LONG (MAIN_OPEN или HEDGE_OPEN)
         if (activeLong && !activeShort) {
-            if (session.getDirection() == TradingDirection.LONG) {
-                return session.getMainOrder();
-            } else {
-                return getLastFilledHedgeOrderByDirection(session, TradingDirection.LONG);
-            }
+            TradeOrder longActive = getLatestActiveOrderByDirection(session, TradingDirection.LONG);
+            log.debug("🔍 Returning latest active LONG order: {}", longActive != null ? longActive.getOrderId() : "null");
+            return longActive;
         }
 
-        // Если активна только SHORT позиция
+        // Если активна только SHORT позиция — мониторим последний активный SHORT (MAIN_OPEN или HEDGE_OPEN)
         if (activeShort && !activeLong) {
-            if (session.getDirection() == TradingDirection.SHORT) {
-                return session.getMainOrder();
-            } else {
-                return getLastFilledHedgeOrderByDirection(session, TradingDirection.SHORT);
-            }
+            TradeOrder shortActive = getLatestActiveOrderByDirection(session, TradingDirection.SHORT);
+            log.debug("🔍 Returning latest active SHORT order: {}", shortActive != null ? shortActive.getOrderId() : "null");
+            return shortActive;
         }
 
         // Если активны обе — для мониторинга вернем основной
-        return session.getMainOrder();
+        TradeOrder mainOrder = session.getMainOrder();
+        log.debug("🔍 Returning main order for both active: {}", mainOrder != null ? mainOrder.getOrderId() : "null");
+        return mainOrder;
     }
 
     private TradeOrder getLastFilledHedgeOrderByDirection(TradeSession session, TradingDirection direction) {
@@ -591,38 +609,103 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
      * Логика для одной позиции (НОВАЯ УПРОЩЕННАЯ ЛОГИКА)
      */
     private void applySinglePositionLogic(TradeSession session, BigDecimal price, TradeOrder activeOrder, BigDecimal pnl) {
-        // === НОВЫЙ ТРЕЙЛИНГ (активация при 0.1%, откат 30%) ===
+        // Сценарий сопровождения убыточной после закрытия прибыльной
+        FollowUpState followUp = followUpBySession.get(session.getId());
+        if (followUp != null) {
+            // Работать строго с убыточной ногой
+            TradeOrder losingOrder = getLatestActiveOrderByDirection(session, followUp.getLosingDirection());
+            if (losingOrder == null || losingOrder.getPrice() == null || losingOrder.getPrice().signum() == 0) {
+                log.error("❌ FOLLOW-UP: cannot find losing order {}", followUp.getLosingDirection());
+                followUpBySession.remove(session.getId());
+                return;
+            }
+
+            BigDecimal entry = losingOrder.getPrice();
+            BigDecimal losingPnl = (followUp.getLosingDirection() == TradingDirection.LONG)
+                    ? price.subtract(entry).divide(entry, 8, RoundingMode.HALF_UP).multiply(PERCENTAGE_MULTIPLIER)
+                    : entry.subtract(price).divide(entry, 8, RoundingMode.HALF_UP).multiply(PERCENTAGE_MULTIPLIER);
+
+            // Фиксируем baseline именно для убыточной ноги
+            if (!followUp.isProfitableClosed()) {
+                followUp.setProfitableClosed(true);
+                followUp.setBaselinePnlAtStart(losingPnl);
+                log.info("🧭 Session {} → FOLLOW-UP START: baseline={}%, losingDir={}",
+                        session.getId(), losingPnl, followUp.getLosingDirection());
+            }
+
+            BigDecimal deltaFromBaseline = losingPnl.subtract(followUp.getBaselinePnlAtStart());
+
+            // Ухудшение: открыть хедж в противоположную losing стороне (если второй ноги нет)
+            if (deltaFromBaseline.compareTo(FOLLOW_UP_WORSEN_DELTA_PCT) <= 0) {
+                TradingDirection hedgeDirection = getOppositeDirection(losingOrder.getDirection());
+                String context = String.format("follow_up_worsen delta<=%.3f from %.3f", FOLLOW_UP_WORSEN_DELTA_PCT, followUp.getBaselinePnlAtStart());
+                log.info("🛡️ Session {} → FOLLOW-UP HEDGE (worsen by {}%)", session.getId(), deltaFromBaseline);
+                executeOpenHedge(session, hedgeDirection, "HEDGE_OPEN", price, context);
+                followUpBySession.remove(session.getId());
+                return;
+            }
+
+            // Улучшение: включаем трейлинг на losing и открываем хедж (если второй ноги нет)
+            if (deltaFromBaseline.compareTo(FOLLOW_UP_IMPROVE_DELTA_PCT) >= 0) {
+                if (losingOrder.getTrailingActive() == null || !losingOrder.getTrailingActive()) {
+                    losingOrder.setTrailingActive(true);
+                    losingOrder.setPnlHigh(losingPnl);
+                    log.info("🚀 Session {} → FOLLOW-UP: enable trailing for improving losing (pnl={}%)", session.getId(), losingPnl);
+                }
+                TradingDirection hedgeDirection = getOppositeDirection(losingOrder.getDirection());
+                String context = String.format("follow_up_improve delta>=%.3f from %.3f", FOLLOW_UP_IMPROVE_DELTA_PCT, followUp.getBaselinePnlAtStart());
+                executeOpenHedge(session, hedgeDirection, "HEDGE_OPEN", price, context);
+                followUpBySession.remove(session.getId());
+                return;
+            }
+
+            // 1/3 прибыли пары: закрыть убыточную, когда она улучшилась и достигла +1/3 ref
+            BigDecimal ref = Optional.ofNullable(followUp.getProfitReferencePnl()).orElse(BigDecimal.ZERO);
+            if (ref.signum() > 0) {
+                BigDecimal target = ref.multiply(FOLLOW_UP_ONE_THIRD_PROFIT_RATIO);
+                if (losingPnl.compareTo(target) >= 0) {
+                    String context = String.format("follow_up_one_third target>=%.3f of ref=%.3f", target, ref);
+                    executeClosePosition(session, losingOrder, SessionMode.SCALPING, context);
+                    followUpBySession.remove(session.getId());
+                    return;
+                }
+            }
+            // Продолжаем мониторить по follow-up без стандартных правил
+            return;
+        }
+
+        // === НОВЫЙ ТРЕЙЛИНГ (активация, затем закрытие по откату) ===
         if (checkNewTrailing(activeOrder, pnl)) {
             log.info("📉 Session {} → CLOSE POSITION (NEW TRAILING)", session.getId());
             String context = String.format("new_monitoring_trailing pnl>=%.3f retrace<=%.3f",
-                    activeOrder.getPnlHigh(), activeOrder.getPnlHigh().multiply(NEW_TRAILING_CLOSE_RATIO));
+                    activeOrder.getPnlHigh(), activeOrder.getPnlHigh().multiply(TRAILING_CLOSE_RETRACE_RATIO));
             executeClosePosition(session, activeOrder, SessionMode.SCALPING, context);
             return;
         }
 
-        // === ХЕДЖ ПРИ УБЫТКЕ -0.03% ===
-        if (pnl.compareTo(HEDGE_OPEN_THRESHOLD) <= 0) {
+        // === ХЕДЖ ПРИ УБЫТКЕ ===
+        if (pnl.compareTo(SINGLE_POSITION_HEDGE_THRESHOLD_PCT) <= 0) {
             // ЗАЩИТА 1: Проверяем, есть ли уже две активные позиции
             if (session.hasBothPositionsActive()) {
-                log.debug("🚫 Session {} → HEDGE BLOCKED: both positions already active (LONG={}, SHORT={})", 
+                log.debug("🚫 Session {} → HEDGE BLOCKED: both positions already active (LONG={}, SHORT={})",
                         session.getId(), session.isActiveLong(), session.isActiveShort());
                 return;
             }
 
             TradingDirection hedgeDirection = getOppositeDirection(activeOrder.getDirection());
-            
+
             // ЗАЩИТА 2: Проверяем, что направление хеджа не активно
-                if ((hedgeDirection == TradingDirection.LONG && session.isActiveLong()) ||
-                        (hedgeDirection == TradingDirection.SHORT && session.isActiveShort())) {
-                log.debug("🚫 Session {} → HEDGE BLOCKED: target direction {} already active", 
+            if ((hedgeDirection == TradingDirection.LONG && session.isActiveLong()) ||
+                    (hedgeDirection == TradingDirection.SHORT && session.isActiveShort())) {
+                log.debug("🚫 Session {} → HEDGE BLOCKED: target direction {} already active",
                         session.getId(), hedgeDirection);
                 return;
             }
 
             String context = String.format("new_hedge_loss pnl<=%.3f", pnl);
-            log.info("🛡️ Session {} → OPEN HEDGE (NEW LOGIC: loss at {}%)", session.getId(), pnl);
-                executeOpenHedge(session, hedgeDirection, "HEDGE_OPEN", price, context);
-                return;
+            log.info("🛡️ Session {} → OPEN HEDGE (SINGLE POSITION loss at {}%)", session.getId(), pnl);
+            executeOpenHedge(session, hedgeDirection, "HEDGE_OPEN", price, context);
+            return;
         }
     }
 
@@ -665,24 +748,30 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
                 session.getId(), profitableDirection, profitablePnl,
                 losingDirection, losingPnl);
 
-        // === НОВАЯ ЛОГИКА: если прибыльная позиция достигла +0.1%, закрываем убыточную ===
-        if (profitablePnl.compareTo(PROFITABLE_POSITION_THRESHOLD) >= 0) {
-            log.info("🎯 Session {} → CLOSE LOSING {} POSITION (profitable {} reached +0.1%)", 
-                    session.getId(), losingDirection, profitableDirection);
-            String context = String.format("new_two_pos_logic profitable_pnl>=%.3f close_losing",
-                    profitablePnl);
-            executeClosePosition(session, losingOrder, SessionMode.HEDGING, context);
+        // Если прибыльная достигла порога — начинаем трейлить прибыльную и сразу стартуем сопровождение убыточной
+        if (profitablePnl.compareTo(TWO_POS_PROFITABLE_ACTIVATION_PCT) >= 0) {
+            // Инициируем/обновим follow-up для убыточной
+            FollowUpState fu = followUpBySession.computeIfAbsent(session.getId(), k -> new FollowUpState());
+            fu.setLosingDirection(losingOrder.getDirection());
+            // Опорная прибыль = максимум из текущего хайя прибыльной и текущего профита
+            BigDecimal profitableHigh = Optional.ofNullable(profitableOrder.getPnlHigh()).orElse(BigDecimal.ZERO);
+            BigDecimal refCandidate = profitableHigh.max(profitablePnl);
+            BigDecimal existingRef = Optional.ofNullable(fu.getProfitReferencePnl()).orElse(BigDecimal.ZERO);
+            fu.setProfitReferencePnl(refCandidate.max(existingRef));
+            // время старта сопровождения можно добавить при необходимости
+
+            // Включаем трейлинг прибыльной; закрытие по откату
+            if (checkNewTrailing(profitableOrder, profitablePnl)) {
+                log.info("📉 Session {} → CLOSE {} (TRAILING)", session.getId(), profitableDirection);
+                String context = String.format("two_pos_profitable_trailing pnl>=%.3f retrace<=%.3f",
+                        profitableOrder.getPnlHigh(), profitableOrder.getPnlHigh().multiply(TRAILING_CLOSE_RETRACE_RATIO));
+                executeClosePosition(session, profitableOrder, SessionMode.HEDGING, context);
+                // Не удаляем follow-up — дальше будет одинарная позиция (убыточная)
+            }
             return;
         }
 
-        // === ТРЕЙЛИНГ для прибыльной позиции ===
-        if (checkNewTrailing(profitableOrder, profitablePnl)) {
-            log.info("📉 Session {} → CLOSE {} (NEW TRAILING PROFITABLE)", session.getId(), profitableDirection);
-            String context = String.format("new_monitoring_trailing_profitable pnl>=%.3f retrace<=%.3f",
-                    profitableOrder.getPnlHigh(), profitableOrder.getPnlHigh().multiply(NEW_TRAILING_CLOSE_RATIO));
-            executeClosePosition(session, profitableOrder, SessionMode.HEDGING, context);
-            return;
-        }
+        // Если порог не достигнут — ничего не делаем, продолжаем мониторинг
     }
 
     private TradingDirection getOppositeDirection(TradingDirection direction) {
@@ -691,13 +780,30 @@ public class MonitoringServiceV2Impl implements MonitoringServiceV2 {
 
     private TradeOrder getLatestActiveOrderByDirection(TradeSession session, TradingDirection direction) {
         // Находим последний FILLED открывающий ордер нужного направления, который не закрыт
-        return session.getOrders().stream()
+        List<TradeOrder> allOrders = session.getOrders().stream()
                 .filter(o -> OrderStatus.FILLED.equals(o.getStatus()))
                 .filter(o -> direction.equals(o.getDirection()))
                 .filter(o -> OrderPurpose.MAIN_OPEN.equals(o.getPurpose()) || OrderPurpose.HEDGE_OPEN.equals(o.getPurpose()))
+                .collect(Collectors.toList());
+
+        log.debug("🔍 getLatestActiveOrderByDirection: session={}, direction={}, found {} orders",
+                session.getId(), direction, allOrders.size());
+
+        List<TradeOrder> activeOrders = allOrders.stream()
                 .filter(o -> !isOpenOrderClosed(session, o))
+                .collect(Collectors.toList());
+
+        log.debug("🔍 getLatestActiveOrderByDirection: session={}, direction={}, {} orders are active",
+                session.getId(), direction, activeOrders.size());
+
+        TradeOrder result = activeOrders.stream()
                 .max(Comparator.comparing(TradeOrder::getOrderTime))
                 .orElse(null);
+
+        log.debug("🔍 getLatestActiveOrderByDirection: session={}, direction={}, result={}",
+                session.getId(), direction, result != null ? result.getOrderId() : "null");
+
+        return result;
     }
 
     private boolean isOpenOrderClosed(TradeSession session, TradeOrder openOrder) {

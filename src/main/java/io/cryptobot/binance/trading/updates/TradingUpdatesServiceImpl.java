@@ -46,6 +46,13 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
         //create order
 //        Order orderOpen = orderService.createOrder(coin, count.doubleValue(), closeSide, true);
         Order orderClosed = orderService.closeOrder(entryOrder);
+        
+        // Проверяем что ордер был создан успешно
+        if (orderClosed == null) {
+            log.warn("⚠️ Failed to create close order for orderId: {} (position may already be closed)", idOrder);
+            return session;
+        }
+        
         //check filled
         boolean filled = waitForFilledOrder(orderClosed, 15000, 200);
         if (!filled) {
@@ -53,7 +60,17 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
             return session;
         }
 
-        Order filledOrder = orderService.getOrder(orderClosed.getOrderId());
+        Order filledOrder;
+        try {
+            filledOrder = orderService.getOrder(orderClosed.getOrderId());
+            if (filledOrder == null) {
+                log.warn("⚠️ Failed to get filled order for orderId: {}", orderClosed.getOrderId());
+                return session;
+            }
+        } catch (Exception e) {
+            log.error("❌ Error getting filled order for orderId {}: {}", orderClosed.getOrderId(), e.getMessage());
+            return session;
+        }
 
         //calc pnl
         BigDecimal pnlFraction;
@@ -100,7 +117,18 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
             log.warn("Order {} was not filled in time", orderOpen.getOrderId());
             return session;
         }
-        Order filledOrder = orderService.getOrder(orderOpen.getOrderId());
+        Order filledOrder;
+        try {
+            filledOrder = orderService.getOrder(orderOpen.getOrderId());
+            if (filledOrder == null) {
+                log.warn("⚠️ Failed to get filled order for orderId: {}", orderOpen.getOrderId());
+                return session;
+            }
+        } catch (Exception e) {
+            log.error("❌ Error getting filled order for orderId {}: {}", orderOpen.getOrderId(), e.getMessage());
+            return session;
+        }
+        
         TradeOrder newOrder = new TradeOrder();
         newOrder.onCreate(filledOrder,BigDecimal.ZERO, sessionMode, context, plan, direction, purpose, parentOrderId, relatedHedgeId);
         TradeSession updatesSession = sessionService.addOrder(session.getId(), newOrder);
@@ -109,13 +137,24 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
     }
 
     private boolean waitForFilledOrder(Order order, int maxWaitMillis, int intervalMillis) {
+        if (order == null) {
+            log.warn("⚠️ Cannot wait for null order");
+            return false;
+        }
+        
         long startTime = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTime < maxWaitMillis) {
-            Order updated = orderService.getOrder(order.getOrderId());
-            if (updated.getOrderStatus().equals(OrderStatus.FILLED)) {
-                log.info("✅ Order {} is filled", order.getOrderId());
-                return true;
+            try {
+                Order updated = orderService.getOrder(order.getOrderId());
+                if (updated != null && updated.getOrderStatus() != null && updated.getOrderStatus().equals(OrderStatus.FILLED)) {
+                    log.info("✅ Order {} is filled", order.getOrderId());
+                    return true;
+                }
+            } catch (Exception e) {
+                log.warn("⚠️ Error getting order status for {}: {}", order.getOrderId(), e.getMessage());
+                // Продолжаем попытки несмотря на ошибку
             }
+            
             try {
                 Thread.sleep(intervalMillis);
             } catch (InterruptedException e) {

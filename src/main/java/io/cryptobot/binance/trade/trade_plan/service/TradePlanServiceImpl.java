@@ -1,15 +1,19 @@
 package io.cryptobot.binance.trade.trade_plan.service;
 
 import io.cryptobot.binance.BinanceService;
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.trade_plan.dao.TradePlanRepository;
 import io.cryptobot.binance.trade.trade_plan.dto.TradePlanCreateDto;
+import io.cryptobot.binance.trade.trade_plan.exceptions.TradePlanNotFoundException;
 import io.cryptobot.binance.trade.trade_plan.helper.TradePlanHelper;
 import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
 import io.cryptobot.binance.trade.trade_plan.model.TradeMetrics;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.cache.TradePlanCacheManager;
+import io.cryptobot.binance.trading.process.TradingProcessService;
 import io.cryptobot.configs.locks.TradePlanLockRegistry;
 import io.cryptobot.helpers.SymbolHelper;
+import io.cryptobot.market_data.ticker24h.Ticker24hService;
 import io.cryptobot.utils.MarketDataSubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +21,7 @@ import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +35,10 @@ public class TradePlanServiceImpl implements TradePlanService{
     private final TradePlanRepository repository;
     private final BinanceService binanceService;
     private final TradePlanCacheManager cacheManager;
-    private  final MarketDataSubscriptionService dataSubscriptionService;
+    private final MarketDataSubscriptionService dataSubscriptionService;
+    //todo remove
+    private final TradingProcessService tradingProcessService;
+    private final Ticker24hService ticker24hService;
     @Override
     @Transactional
     public TradePlan createPlan(TradePlanCreateDto dto) {
@@ -74,5 +82,14 @@ public class TradePlanServiceImpl implements TradePlanService{
         return created.stream()
                 .map(TradePlan::getSymbol)
                 .toList();
+    }
+
+    @Override
+    @Transactional //todo
+    public void startSession(String coin, String context, TradingDirection direction) {
+        TradePlan plan = repository.findById(coin).orElseThrow(TradePlanNotFoundException::new);
+        BigDecimal price = ticker24hService.getPrice(coin);
+        //TradePlan plan, TradingDirection direction, BigDecimal currentPrice, String context
+        tradingProcessService.openOrder(plan, direction, price, context);
     }
 }

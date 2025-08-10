@@ -6,6 +6,7 @@ import io.cryptobot.binance.trade.session.dto.SessionAllDto;
 import io.cryptobot.binance.trade.session.dto.SessionDto;
 import io.cryptobot.binance.trade.session.enums.SessionStatus;
 import io.cryptobot.binance.trade.session.exceptions.TradeSessionNotFoundException;
+import io.cryptobot.binance.trade.session.model.TradeOrder;
 import io.cryptobot.binance.trade.session.model.TradeSession;
 import io.cryptobot.binance.trade.session.service.TradeSessionService;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Slf4j
@@ -61,6 +63,13 @@ public class TradeSessionGetServiceImpl implements TradeSessionGetService {
 
     @Override
     @Transactional
+    public List<TradeOrder> getOrders(String idSession) {
+        TradeSession session = repository.findById(idSession).orElseThrow(TradeSessionNotFoundException::new);
+        return session.getOrders();
+    }
+
+    @Override
+    @Transactional
     public PnlResultDto calcPnlAll() {
         List<TradeSession> all = repository.findAll();
         return calcPnlModel(all);
@@ -71,6 +80,20 @@ public class TradeSessionGetServiceImpl implements TradeSessionGetService {
     public PnlResultDto calcPnlByPlan(String plan) {
         List<TradeSession> all = repository.findAllByTradePlan(plan);
         return calcPnlModel(all);
+    }
+
+    @Override
+    @Transactional
+    public PnlResultDto calcPnlByTimeRange(LocalDateTime from, LocalDateTime to) {
+        List<TradeSession> sessions = repository.findAllByCreatedTimeBetween(from, to);
+        return calcPnlModel(sessions);
+    }
+
+    @Override
+    @Transactional
+    public PnlResultDto calcPnlByTimeRangeAndSymbol(LocalDateTime from, LocalDateTime to, String symbol) {
+        List<TradeSession> sessions = repository.findAllByCreatedTimeBetweenAndTradePlan(from, to, symbol);
+        return calcPnlModel(sessions);
     }
 
     private PnlResultDto calcPnlModel(List<TradeSession> all) {

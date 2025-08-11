@@ -22,13 +22,13 @@ import java.math.RoundingMode;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class TradingUpdatesServiceImpl implements TradingUpdatesService{
+public class TradingUpdatesServiceImpl implements TradingUpdatesService {
     private final TradePlanGetService tradePlanGetService;
     private final TradeSessionService sessionService;
     private final OrderService orderService;
 
     @Override
-    public TradeSession closePosition(TradeSession session,SessionMode sessionMode, Long idOrder, Long relatedHedgeId, TradingDirection direction, OrderPurpose purpose, BigDecimal currentPrice, String context){
+    public TradeSession closePosition(TradeSession session, SessionMode sessionMode, Long idOrder, Long relatedHedgeId, TradingDirection direction, OrderPurpose purpose, BigDecimal currentPrice, String context) {
         TradePlan tradePlan = tradePlanGetService.getPlan(session.getTradePlan());
         String coin = session.getTradePlan();
         TradeOrder entryOrder = session.getOrders().stream()
@@ -37,7 +37,7 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
                 .orElseThrow(() -> new RuntimeException("Order not found: " + idOrder));
 
         BigDecimal entryPrice = entryOrder.getPrice();
-        BigDecimal count      = entryOrder.getCount();
+        BigDecimal count = entryOrder.getCount();
 
         OrderSide closeSide = entryOrder.getSide() == OrderSide.BUY
                 ? OrderSide.SELL
@@ -46,13 +46,13 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
         //create order
 //        Order orderOpen = orderService.createOrder(coin, count.doubleValue(), closeSide, true);
         Order orderClosed = orderService.closeOrder(entryOrder);
-        
+
         // Проверяем что ордер был создан успешно
         if (orderClosed == null) {
             log.warn("⚠️ Failed to create close order for orderId: {} (position may already be closed)", idOrder);
             return session;
         }
-        
+
         //check filled
         boolean filled = waitForFilledOrder(orderClosed, 15000, 200);
         if (!filled) {
@@ -98,7 +98,12 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
     }
 
     @Override
-    public TradeSession openPosition(TradeSession session,SessionMode sessionMode, TradingDirection direction, OrderPurpose purpose, BigDecimal currentPrice, String context, Long parentOrderId, Long relatedHedgeId){
+    public TradeSession openPosition(TradeSession session, SessionMode sessionMode, TradingDirection direction, OrderPurpose purpose, BigDecimal currentPrice, String context, Long parentOrderId, Long relatedHedgeId) {
+        // if exists 2 orders -> not open new, last level validation
+        if (session.isActiveLong() && session.isActiveShort()) {
+            log.info("🛡️ Session {} has both LONG and SHORT positions active, skipping close operation", session.getId());
+            return session;
+        }
         TradePlan plan = tradePlanGetService.getPlan(session.getTradePlan());
 
         String coin = plan.getSymbol();
@@ -128,9 +133,9 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
             log.error("❌ Error getting filled order for orderId {}: {}", orderOpen.getOrderId(), e.getMessage());
             return session;
         }
-        
+
         TradeOrder newOrder = new TradeOrder();
-        newOrder.onCreate(filledOrder,BigDecimal.ZERO, sessionMode, context, plan, direction, purpose, parentOrderId, relatedHedgeId);
+        newOrder.onCreate(filledOrder, BigDecimal.ZERO, sessionMode, context, plan, direction, purpose, parentOrderId, relatedHedgeId);
         TradeSession updatesSession = sessionService.addOrder(session.getId(), newOrder);
         log.error("open order {}", newOrder.getOrderId());
         return updatesSession;
@@ -141,7 +146,7 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
             log.warn("⚠️ Cannot wait for null order");
             return false;
         }
-        
+
         long startTime = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTime < maxWaitMillis) {
             try {
@@ -154,7 +159,7 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService{
                 log.warn("⚠️ Error getting order status for {}: {}", order.getOrderId(), e.getMessage());
                 // Продолжаем попытки несмотря на ошибку
             }
-            
+
             try {
                 Thread.sleep(intervalMillis);
             } catch (InterruptedException e) {

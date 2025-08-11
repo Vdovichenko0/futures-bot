@@ -96,9 +96,9 @@ public class TradeSessionServiceImpl implements TradeSessionService {
 
         TradeSession session = getById(idSession);
 
-        if (SessionStatus.COMPLETED.equals(session.getStatus())) {
-            log.warn("Session {} is already completed", idSession);
-            return session;
+        if (session.getStatus().equals(SessionStatus.COMPLETED)){
+            tradePlanUpdateService.setActiveFalse(session.getTradePlan());
+            tradePlanUpdateService.addProfit(session.getTradePlan(), session.getPnl().subtract(session.getTotalCommission()).stripTrailingZeros());
         }
 
         session.completeSession();
@@ -107,7 +107,6 @@ public class TradeSessionServiceImpl implements TradeSessionService {
         log.info("Closed session: {}, final PnL: {}, duration: {} minutes", idSession, savedSession.getPnl(), savedSession.getDurationMinutes());
 
         tradePlanUpdateService.setActiveFalse(savedSession.getTradePlan());
-        //todo send to monitor - remove session from monitoring
         return savedSession;
     }
 }

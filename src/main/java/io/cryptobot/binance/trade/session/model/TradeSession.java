@@ -265,41 +265,4 @@ public class TradeSession {
         this.activeShort = true;
     }
 
-    // Пересчет активных флагов по нетто-количеству FILLED позиций (MAIN_OPEN/HEDGE_OPEN минус CLOSE)
-    private void recalcActiveFlags() {
-        boolean hasLong = false;
-        boolean hasShort = false;
-
-        // Находим последний FILLED открывающий ордер для каждой стороны, который не закрыт
-        for (TradeOrder o : orders) {
-            if (!OrderStatus.FILLED.equals(o.getStatus())) continue;
-
-            if (OrderPurpose.MAIN_OPEN.equals(o.getPurpose()) || OrderPurpose.HEDGE_OPEN.equals(o.getPurpose())) {
-                if (o.getDirection() == TradingDirection.LONG) {
-                    if (!isOrderClosed(o)) hasLong = true;
-                } else if (o.getDirection() == TradingDirection.SHORT) {
-                    if (!isOrderClosed(o)) hasShort = true;
-                }
-            }
-        }
-
-        this.activeLong = hasLong;
-        this.activeShort = hasShort;
-    }
-
-    private boolean isOrderClosed(TradeOrder openOrder) {
-        if (OrderPurpose.MAIN_OPEN.equals(openOrder.getPurpose())) {
-            return orders.stream()
-                    .filter(o -> OrderStatus.FILLED.equals(o.getStatus()))
-                    .anyMatch(o -> (OrderPurpose.MAIN_CLOSE.equals(o.getPurpose()) || OrderPurpose.MAIN_PARTIAL_CLOSE.equals(o.getPurpose()))
-                            && openOrder.getOrderId().equals(o.getParentOrderId()));
-        }
-        if (OrderPurpose.HEDGE_OPEN.equals(openOrder.getPurpose())) {
-            return orders.stream()
-                    .filter(o -> OrderStatus.FILLED.equals(o.getStatus()))
-                    .anyMatch(o -> (OrderPurpose.HEDGE_CLOSE.equals(o.getPurpose()) || OrderPurpose.HEDGE_PARTIAL_CLOSE.equals(o.getPurpose()))
-                            && openOrder.getOrderId().equals(o.getParentOrderId()));
-        }
-        return true;
-    }
 }

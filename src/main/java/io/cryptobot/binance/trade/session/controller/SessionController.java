@@ -4,8 +4,10 @@ import io.cryptobot.binance.trade.session.dto.PnlResultDto;
 import io.cryptobot.binance.trade.session.dto.SessionAllDto;
 import io.cryptobot.binance.trade.session.dto.SessionDto;
 import io.cryptobot.binance.trade.session.enums.SessionStatus;
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.session.model.TradeOrder;
 import io.cryptobot.binance.trade.session.service.get.TradeSessionGetService;
+import io.cryptobot.binance.trade.session.service.handle_work.SessionHandleActionsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -22,6 +24,7 @@ import java.util.List;
 @RequestMapping("/session")
 public class SessionController {
     private final TradeSessionGetService sessionGetService;
+    private final SessionHandleActionsService handleActionsService;
 
     @GetMapping("/all")
     @ResponseStatus(HttpStatus.OK)
@@ -80,5 +83,24 @@ public class SessionController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
         return sessionGetService.calcPnlByTimeRangeAndSymbol(from, to, symbol);
+    }
+
+    //handle actions
+    @PutMapping("/{idSession}/close-all")
+    @ResponseStatus(HttpStatus.OK)
+    public SessionDto closeAllActiveOrders(@PathVariable String idSession){
+        return handleActionsService.closeAllActiveOrders(idSession);
+    }
+
+    @PutMapping("/{idSession}/close")
+    @ResponseStatus(HttpStatus.OK)
+    public SessionDto closeSession(@PathVariable String idSession){
+        return handleActionsService.closeSession(idSession);
+    }
+
+    @PutMapping("/{idSession}/{direction}/close-order")
+    @ResponseStatus(HttpStatus.OK)
+    public SessionDto closeOrderByDirection(@PathVariable String idSession,@PathVariable TradingDirection direction){
+        return handleActionsService.closeOrderByDirection(idSession, direction);
     }
 }

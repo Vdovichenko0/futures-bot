@@ -59,11 +59,11 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
     // Одна позиция: отслеживание и ранний хедж
     private static final BigDecimal SINGLE_TRACKING_START_PCT        = new BigDecimal("-0.20"); // Старт отслеживания при -0.20%
     private static final BigDecimal SINGLE_EARLY_HEDGE_PCT           = new BigDecimal("-0.10"); // Ранний хедж до трекинга
-    private static final BigDecimal SINGLE_WORSEN_DELTA_PCT          = new BigDecimal("-0.03"); // Ухудшение от baseline → хедж
+    private static final BigDecimal SINGLE_WORSEN_DELTA_PCT          = new BigDecimal("-0.06"); // Ухудшение от baseline → хедж
     private static final BigDecimal SINGLE_IMPROVE_DELTA_PCT         = new BigDecimal("0.05");  // Улучшение > +0.10% → ждём откат ≥30% и хедж (old)
 
     // Две позиции
-    private static final BigDecimal TWO_POS_PROFITABLE_ACTIVATION_PCT= new BigDecimal("0.10");  // Порог активации трейла у best
+    private static final BigDecimal TWO_POS_PROFITABLE_ACTIVATION_PCT= new BigDecimal("0.20");  // Порог активации трейла у best
 
     // Follow-up после закрытия best (сохраняем ссылочную прибыль пары)
     //private static final BigDecimal FOLLOW_UP_ONE_THIRD_PROFIT_RATIO = new BigDecimal("0.3333"); // при необходимости

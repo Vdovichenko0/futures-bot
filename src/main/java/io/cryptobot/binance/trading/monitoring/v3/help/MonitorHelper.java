@@ -26,6 +26,16 @@ public class MonitorHelper {
         return session.getMainOrder(); // обе активны — основной для расчёта single ветки не используется
     }
 
+//    PositionRole: MAIN, HEDGE, AVERAGE (роль в составе позиции).
+// как вариант попробовать
+//    OrderKind: OPEN, CLOSE (тип действия).
+// адаптивный трейлинг + сервис анализ волатильности
+// тестировать усреднение на линке
+    //метод риск
+
+    //1-2 дня на патч с усреднением
+    //мини версия - деплой запуск пару монет - если есть фикс норм профит
+    //переписать на последний по направлнию и времени открытия
     public TradeOrder getLatestActiveOrderByDirection(TradeSession session, TradingDirection dir) {
         // берём все FILLED/NEW OPEN-ордеры этой стороны
         List<TradeOrder> opens = session.getOrders().stream()
@@ -52,6 +62,7 @@ public class MonitorHelper {
                 .orElse(null);
     }
 
+    //переписать на последний по направлнию и времени открытия
     public TradeOrder getLastFilledHedgeOrderByDirection(TradeSession session, TradingDirection dir) {
         return session.getOrders().stream()
                 .filter(o -> OrderPurpose.HEDGE_OPEN.equals(o.getPurpose()))
@@ -77,6 +88,7 @@ public class MonitorHelper {
         return false;
     }
 
+    //если открыто усреднение то оно главнее
     public boolean isMainStillActive(TradeSession session) {
         TradeOrder main = session.getMainOrder();
         if (main == null) return false;

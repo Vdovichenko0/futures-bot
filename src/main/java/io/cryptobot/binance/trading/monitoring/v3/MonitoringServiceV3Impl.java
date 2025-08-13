@@ -10,6 +10,7 @@ import io.cryptobot.binance.trading.monitoring.v3.models.FollowUpState;
 import io.cryptobot.binance.trading.monitoring.v3.models.SingleTrackState;
 import io.cryptobot.binance.trading.monitoring.v3.utils.CheckAveraging;
 import io.cryptobot.binance.trading.monitoring.v3.utils.CheckTrailing;
+import io.cryptobot.binance.trading.monitoring.v3.utils.ExtraClose;
 import io.cryptobot.binance.trading.updates.TradingUpdatesService;
 import io.cryptobot.configs.locks.TradeSessionLockRegistry;
 import io.cryptobot.market_data.ticker24h.Ticker24hService;
@@ -43,6 +44,7 @@ import io.cryptobot.binance.order.enums.OrderPurpose;
 public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
     private final MonitorHelper monitorHelper;
     private final CheckAveraging averaging;
+    private final ExtraClose extraClose;
 
     // === КОНСТАНТЫ === //todo add to config + api update
     private static final long MONITORING_INTERVAL_MS = 1_000;      // Интервал мониторинга
@@ -55,7 +57,7 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
     private static final BigDecimal COMMISSION_PCT = new BigDecimal("0.036"); // 0.036%
 
     // Трейлинг
-//    private static final BigDecimal TRAILING_ACTIVATION_THRESHOLD_PCT = new BigDecimal("0.10"); // Активация при +0.10%
+//  private static final BigDecimal TRAILING_ACTIVATION_THRESHOLD_PCT = new BigDecimal("0.10"); // Активация при +0.10%
     private static final BigDecimal TRAILING_CLOSE_RETRACE_RATIO = new BigDecimal("0.80");  // Закрытие при 20% отката
 
     // Одна позиция: отслеживание и ранний хедж
@@ -505,6 +507,18 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
                     best.getDirection(), 
                     bestPnl.setScale(3, RoundingMode.HALF_UP), 
                     TWO_POS_PROFITABLE_ACTIVATION_PCT);
+        }
+
+        // 2.1) check extra close
+        if (extraClose.checkExtraClose(session, bestPnl, pnlWorst, best)) {
+            log.info("check extra close and return true, we can close order {} {}", best.getSymbol(), best.getDirection());
+            //for demo
+//            if (!session.getTradePlan().equals("LINKUSDC") && !session.getTradePlan().equals("1000SHIBUSDC")){
+//                routeClose(session, longOrder, SessionMode.HEDGING,
+//                        String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
+//            }
+            routeClose(session, longOrder, SessionMode.HEDGING, String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
+//            return; need return?
         }
 
         // 2.5) ПРОВЕРКА УСРЕДНЕНИЯ ПО ХУДШЕЙ НОГЕ ⬅ NEW

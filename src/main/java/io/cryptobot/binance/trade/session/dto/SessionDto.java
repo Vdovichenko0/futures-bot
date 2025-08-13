@@ -25,11 +25,15 @@ public class SessionDto { //no orders
     private TradingDirection direction;
     private BigDecimal pnl;
     private BigDecimal totalCommission;
+    private BigDecimal pnlTotal;
     private Integer hedgeOpenCount;
     private Integer hedgeCloseCount;
+    private Integer countAverageOrders;
     private String entryContext;
     private boolean activeLong;
     private boolean activeShort;
+    private boolean activeAverageLong;
+    private boolean activeAverageShort;
     private boolean processing;
     private LocalDateTime createdTime;
     private LocalDateTime lastModified;

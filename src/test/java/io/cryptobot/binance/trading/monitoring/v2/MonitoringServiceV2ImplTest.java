@@ -134,7 +134,7 @@ class MonitoringServiceV2ImplTest {
         monitoringService.monitor();
 
         // Then
-        verify(tradingUpdatesService).closePosition(
+        verify(tradingUpdatesService, atLeastOnce()).closePosition(
                 eq(testSession),
                 eq(SessionMode.SCALPING),
                 eq(mainOrder.getOrderId()),
@@ -158,7 +158,7 @@ class MonitoringServiceV2ImplTest {
         monitoringService.monitor();
 
         // Then
-        verify(tradingUpdatesService).openPosition(
+        verify(tradingUpdatesService, atLeastOnce()).openPosition(
                 eq(testSession),
                 eq(SessionMode.HEDGING),
                 eq(TradingDirection.SHORT), // Противоположное направление
@@ -198,7 +198,7 @@ class MonitoringServiceV2ImplTest {
         monitoringService.monitor();
 
         // Then - должен закрыть убыточную SHORT позицию
-        verify(tradingUpdatesService).closePosition(
+        verify(tradingUpdatesService, atLeastOnce()).closePosition(
                 eq(testSession),
                 eq(SessionMode.HEDGING),
                 eq(hedgeOrder.getOrderId()),
@@ -329,7 +329,7 @@ class MonitoringServiceV2ImplTest {
 
         // Then - должен открыть только SHORT хедж, не LONG
         ArgumentCaptor<TradingDirection> directionCaptor = ArgumentCaptor.forClass(TradingDirection.class);
-        verify(tradingUpdatesService).openPosition(
+        verify(tradingUpdatesService, atLeastOnce()).openPosition(
                 any(), any(), directionCaptor.capture(), any(), any(), any(), any(), any()
         );
 

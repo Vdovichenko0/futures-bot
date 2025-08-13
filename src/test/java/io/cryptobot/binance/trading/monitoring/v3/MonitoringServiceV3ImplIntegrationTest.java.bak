@@ -1,0 +1,579 @@
+package io.cryptobot.binance.trading.monitoring.v3;
+
+import io.cryptobot.binance.order.enums.OrderPurpose;
+import io.cryptobot.binance.order.enums.OrderSide;
+import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.model.Order;
+import io.cryptobot.binance.order.service.OrderService;
+import io.cryptobot.binance.trade.session.enums.SessionMode;
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
+import io.cryptobot.binance.trade.session.model.TradeOrder;
+import io.cryptobot.binance.trade.session.model.TradeSession;
+import io.cryptobot.binance.trade.session.service.TradeSessionService;
+import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
+import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
+import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
+import io.cryptobot.binance.trading.monitoring.v3.help.MonitorHelper;
+import io.cryptobot.binance.trading.monitoring.v3.utils.CheckAveraging;
+import io.cryptobot.binance.trading.monitoring.v3.utils.CheckTrailing;
+import io.cryptobot.binance.trading.updates.TradingUpdatesService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+@DisplayName("MonitoringServiceV3Impl Integration Tests - Averaging Cycles")
+class MonitoringServiceV3ImplIntegrationTest {
+
+    @Mock private TradeSessionService sessionService;
+    @Mock private TradePlanGetService tradePlanGetService;
+    @Mock private OrderService orderService;
+    @Mock private TradingUpdatesService tradingUpdatesService;
+    @Mock private MonitorHelper monitorHelper;
+    @Mock private CheckAveraging checkAveraging;
+    @Mock private CheckTrailing checkTrailing;
+
+    private MonitoringServiceV3Impl monitoringService;
+    private TradeSession session;
+    private TradePlan plan;
+
+    @BeforeEach
+    void setUp() {
+        monitoringService = new MonitoringServiceV3Impl(
+                monitorHelper, checkAveraging, sessionService, 
+                null, tradingUpdatesService, checkTrailing, null
+        );
+
+        plan = TradePlan.builder()
+                .symbol("SOLUSDT")
+                .amountPerTrade(new BigDecimal("1000"))
+                .sizes(SizeModel.builder().lotSize(new BigDecimal("0.001")).build())
+                .build();
+
+        session = new TradeSession();
+        session.setId("test-session");
+        
+        lenient().when(sessionService.getById("test-session")).thenReturn(session);
+        lenient().when(tradePlanGetService.getPlan("SOLUSDT")).thenReturn(plan);
+    }
+
+    @Test
+    @DisplayName("Cycle 1: LONG → DOWN → HEDGE → AVERAGING → UP → CLOSE")
+    void testCycle1LongAveraging() {
+        // Step 1: Open Main LONG (1.0 SOL @ 100)
+        TradeOrder mainLong = createOrder(1001L, TradingDirection.LONG, OrderPurpose.MAIN_OPEN, 
+                new BigDecimal("1.0"), new BigDecimal("100"), OrderStatus.FILLED);
+        session.onCreate("SOLUSDT", TradingDirection.LONG, mainLong, "test");
+
+        // Step 2: Price drops → Open Hedge SHORT (1.0 SOL @ 99)
+        TradeOrder hedgeShort1 = createOrder(2001L, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("1.0"), new BigDecimal("99"), OrderStatus.FILLED);
+        session.addOrder(hedgeShort1);
+
+        // Step 3: Close Hedge SHORT (+0.3%)
+        TradeOrder hedgeClose1 = createOrderWithRelatedHedge(2002L, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("1.0"), new BigDecimal("99.297"), OrderStatus.FILLED, hedgeShort1.getOrderId());
+        session.addOrder(hedgeClose1);
+
+        // Step 4: Price drops again → Open Hedge SHORT (1.0 SOL @ 98)
+        TradeOrder hedgeShort2 = createOrder(2003L, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("1.0"), new BigDecimal("98"), OrderStatus.FILLED);
+        session.addOrder(hedgeShort2);
+
+        // Step 5: Close Hedge SHORT (+0.4%)
+        TradeOrder hedgeClose2 = createOrderWithRelatedHedge(2004L, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("1.0"), new BigDecimal("98.392"), OrderStatus.FILLED, hedgeShort2.getOrderId());
+        session.addOrder(hedgeClose2);
+
+        // Step 6: Main LONG in drawdown → Activate averaging LONG (0.8 SOL @ 97)
+        TradeOrder avgLong = createOrderWithParent(3001L, TradingDirection.LONG, OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("0.8"), new BigDecimal("97"), OrderStatus.FILLED, mainLong.getOrderId());
+        session.addOrder(avgLong);
+
+        // Verify session state
+        assertTrue(session.isActiveLong());
+        assertFalse(session.isActiveShort());
+        assertTrue(session.isActiveAverageLong());
+        assertEquals(1, session.getCountAverageOrders());
+
+        // Step 7: Close both (Main LONG + Average LONG) = 1.8 SOL
+        // Mock tradingUpdatesService.closeAveragePosition to update session state
+        when(tradingUpdatesService.closeAveragePosition(session, avgLong.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("102"), "test", TradingDirection.LONG))
+                .thenAnswer(invocation -> {
+                    session.closeAverageLongPosition();
+                    return session;
+                });
+        
+        // Call closeAveragePosition via tradingUpdatesService
+        tradingUpdatesService.closeAveragePosition(session, avgLong.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("102"), "test", TradingDirection.LONG);
+
+        // Verify final state
+        assertFalse(session.isActiveAverageLong());
+        assertEquals(1, session.getCountAverageOrders()); // countAverageOrders is based on AVERAGING_OPEN orders
+    }
+
+    @Test
+    @DisplayName("Cycle 2: SHORT → UP → HEDGE → AVERAGING → DOWN → CLOSE")
+    void testCycle2ShortAveraging() {
+        // Step 1: Open Main SHORT (2.0 BTC @ 30,000)
+        TradeOrder mainShort = createOrder(4001L, TradingDirection.SHORT, OrderPurpose.MAIN_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("30000"), OrderStatus.FILLED);
+        session.onCreate("BTCUSDT", TradingDirection.SHORT, mainShort, "test");
+
+        // Step 2: Price rises → Open Hedge LONG (2.0 BTC @ 30,100)
+        TradeOrder hedgeLong1 = createOrder(5001L, TradingDirection.LONG, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("30100"), OrderStatus.FILLED);
+        session.addOrder(hedgeLong1);
+
+        // Step 3: Close Hedge LONG (+0.25%)
+        TradeOrder hedgeClose1 = createOrderWithRelatedHedge(5002L, TradingDirection.LONG, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("2.0"), new BigDecimal("30175.25"), OrderStatus.FILLED, hedgeLong1.getOrderId());
+        session.addOrder(hedgeClose1);
+
+        // Step 4: Price rises again → Open Hedge LONG (2.0 BTC @ 30,150)
+        TradeOrder hedgeLong2 = createOrder(5003L, TradingDirection.LONG, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("30150"), OrderStatus.FILLED);
+        session.addOrder(hedgeLong2);
+
+        // Step 5: Close Hedge LONG (+0.35%)
+        TradeOrder hedgeClose2 = createOrderWithRelatedHedge(5004L, TradingDirection.LONG, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("2.0"), new BigDecimal("30255.525"), OrderStatus.FILLED, hedgeLong2.getOrderId());
+        session.addOrder(hedgeClose2);
+
+        // Step 6: Main SHORT in drawdown → Activate averaging SHORT (1.0 BTC @ 30,200)
+        TradeOrder avgShort = createOrderWithParent(6001L, TradingDirection.SHORT, OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("1.0"), new BigDecimal("30200"), OrderStatus.FILLED, mainShort.getOrderId());
+        session.addOrder(avgShort);
+
+        // Verify session state
+        assertTrue(session.isActiveShort());
+        assertFalse(session.isActiveLong());
+        assertTrue(session.isActiveAverageShort());
+        assertEquals(1, session.getCountAverageOrders());
+
+        // Step 7: Close both (Main SHORT + Average SHORT) = 3.0 BTC
+        // Mock tradingUpdatesService.closeAveragePosition to update session state
+        when(tradingUpdatesService.closeAveragePosition(session, avgShort.getOrderId(), mainShort.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("29800"), "test", TradingDirection.SHORT))
+                .thenAnswer(invocation -> {
+                    session.closeAverageShortPosition();
+                    return session;
+                });
+
+        tradingUpdatesService.closeAveragePosition(session, avgShort.getOrderId(), mainShort.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("29800"), "test", TradingDirection.SHORT);
+
+        // Verify final state
+        assertFalse(session.isActiveAverageShort());
+        assertEquals(1, session.getCountAverageOrders()); // countAverageOrders is based on AVERAGING_OPEN orders
+    }
+
+    @Test
+    @DisplayName("Cycle 3: Detailed LONG averaging with exact quantities")
+    void testCycle3DetailedLongAveraging() {
+        // Main LONG (qty=1.0)
+        TradeOrder mainLong = createOrder(7001L, TradingDirection.LONG, OrderPurpose.MAIN_OPEN,
+                new BigDecimal("1.0"), new BigDecimal("100"), OrderStatus.FILLED);
+        session.onCreate("SOLUSDT", TradingDirection.LONG, mainLong, "test");
+
+        // Hedge SHORT (open)
+        TradeOrder hedgeShort1 = createOrder(8001L, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("1.0"), new BigDecimal("99"), OrderStatus.FILLED);
+        session.addOrder(hedgeShort1);
+
+        // Close hedge SHORT
+        TradeOrder hedgeClose1 = createOrderWithRelatedHedge(8002L, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("1.0"), new BigDecimal("99.495"), OrderStatus.FILLED, hedgeShort1.getOrderId());
+        session.addOrder(hedgeClose1);
+
+        // Open hedge SHORT again
+        TradeOrder hedgeShort2 = createOrder(8003L, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("1.0"), new BigDecimal("98"), OrderStatus.FILLED);
+        session.addOrder(hedgeShort2);
+
+        // Close hedge SHORT again
+        TradeOrder hedgeClose2 = createOrderWithRelatedHedge(8004L, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("1.0"), new BigDecimal("98.294"), OrderStatus.FILLED, hedgeShort2.getOrderId());
+        session.addOrder(hedgeClose2);
+
+        // Activate averaging on main LONG (AVERAGING_OPEN long, qty=0.8, parent=main.long.id)
+        TradeOrder avgLong = createOrderWithParent(9001L, TradingDirection.LONG, OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("0.8"), new BigDecimal("97"), OrderStatus.FILLED, mainLong.getOrderId());
+        session.addOrder(avgLong);
+
+        // ASSERT: totalQty=1.0+0.8=1.8
+        BigDecimal totalQty = mainLong.getCount().add(avgLong.getCount());
+        assertEquals(new BigDecimal("1.8"), totalQty);
+
+        // Close averaging order
+        when(tradingUpdatesService.closeAveragePosition(session, avgLong.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("103"), "test", TradingDirection.LONG))
+                .thenAnswer(invocation -> {
+                    session.closeAverageLongPosition();
+                    return session;
+                });
+
+        tradingUpdatesService.closeAveragePosition(session, avgLong.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("103"), "test", TradingDirection.LONG);
+
+        // ASSERT: activeAverageLong=false; long position fully closed
+        assertFalse(session.isActiveAverageLong());
+        assertEquals(1, session.getCountAverageOrders()); // countAverageOrders is based on AVERAGING_OPEN orders
+    }
+
+    @Test
+    @DisplayName("Cycle 4: Detailed SHORT averaging with exact quantities")
+    void testCycle4DetailedShortAveraging() {
+        // Main SHORT (qty=2.0)
+        TradeOrder mainShort = createOrder(10001L, TradingDirection.SHORT, OrderPurpose.MAIN_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("30000"), OrderStatus.FILLED);
+        session.onCreate("BTCUSDT", TradingDirection.SHORT, mainShort, "test");
+
+        // Hedge LONG (open)
+        TradeOrder hedgeLong1 = createOrder(11001L, TradingDirection.LONG, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("30100"), OrderStatus.FILLED);
+        session.addOrder(hedgeLong1);
+
+        // Close hedge LONG
+        TradeOrder hedgeClose1 = createOrderWithRelatedHedge(11002L, TradingDirection.LONG, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("2.0"), new BigDecimal("30220.4"), OrderStatus.FILLED, hedgeLong1.getOrderId());
+        session.addOrder(hedgeClose1);
+
+        // Open hedge LONG again
+        TradeOrder hedgeLong2 = createOrder(11003L, TradingDirection.LONG, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("30150"), OrderStatus.FILLED);
+        session.addOrder(hedgeLong2);
+
+        // Close hedge LONG again
+        TradeOrder hedgeClose2 = createOrderWithRelatedHedge(11004L, TradingDirection.LONG, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("2.0"), new BigDecimal("30210.3"), OrderStatus.FILLED, hedgeLong2.getOrderId());
+        session.addOrder(hedgeClose2);
+
+        // Activate averaging on main SHORT (AVERAGING_OPEN short, qty=1.2, parent=main.short.id)
+        TradeOrder avgShort = createOrderWithParent(12001L, TradingDirection.SHORT, OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("1.2"), new BigDecimal("30200"), OrderStatus.FILLED, mainShort.getOrderId());
+        session.addOrder(avgShort);
+
+        // ASSERT: totalQty=2.0+1.2=3.2
+        BigDecimal totalQty = mainShort.getCount().add(avgShort.getCount());
+        assertEquals(new BigDecimal("3.2"), totalQty);
+
+        // Close averaging order
+        when(tradingUpdatesService.closeAveragePosition(session, avgShort.getOrderId(), mainShort.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("29700"), "test", TradingDirection.SHORT))
+                .thenAnswer(invocation -> {
+                    session.closeAverageShortPosition();
+                    return session;
+                });
+
+        tradingUpdatesService.closeAveragePosition(session, avgShort.getOrderId(), mainShort.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("29700"), "test", TradingDirection.SHORT);
+
+        // ASSERT: activeAverageShort=false; short position fully closed
+        assertFalse(session.isActiveAverageShort());
+        assertEquals(1, session.getCountAverageOrders()); // countAverageOrders is based on AVERAGING_OPEN orders
+    }
+
+    @Test
+    @DisplayName("Cycle 5: Long series of scalping hedges (40-50 trades)")
+    void testCycle5LongScalpingSeries() {
+        // Main LONG position
+        TradeOrder mainLong = createOrder(13001L, TradingDirection.LONG, OrderPurpose.MAIN_OPEN,
+                new BigDecimal("1.0"), new BigDecimal("100"), OrderStatus.FILLED);
+        session.onCreate("SOLUSDT", TradingDirection.LONG, mainLong, "test");
+
+        // Simulate 45 hedge cycles
+        for (int i = 1; i <= 45; i++) {
+            // Open hedge SHORT
+            TradeOrder hedgeShort = createOrder(14000L + i, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                    new BigDecimal("1.0"), new BigDecimal("99").subtract(new BigDecimal(i)), OrderStatus.FILLED);
+            session.addOrder(hedgeShort);
+
+            // Close hedge SHORT
+            BigDecimal closePrice = new BigDecimal("99").subtract(new BigDecimal(i))
+                    .multiply(BigDecimal.ONE.add(new BigDecimal("0.1").add(new BigDecimal(i * 0.01)).divide(new BigDecimal("100"))));
+            TradeOrder hedgeClose = createOrderWithRelatedHedge(15000L + i, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                    new BigDecimal("1.0"), closePrice, OrderStatus.FILLED, hedgeShort.getOrderId());
+            session.addOrder(hedgeClose);
+        }
+
+        // Verify session state after long series
+        assertTrue(session.isActiveLong());
+        assertFalse(session.isActiveShort());
+        assertEquals(0, session.getCountAverageOrders());
+
+        // Verify all hedge orders were processed
+        assertEquals(91, session.getOrders().size()); // 1 main + 45 hedge opens + 45 hedge closes
+    }
+
+    @Test
+    @DisplayName("Cycle 6: Multiple averaging positions - complex scenario")
+    void testCycle6MultipleAveragingPositions() {
+        // Main LONG position
+        TradeOrder mainLong = createOrder(16001L, TradingDirection.LONG, OrderPurpose.MAIN_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("100"), OrderStatus.FILLED);
+        session.onCreate("SOLUSDT", TradingDirection.LONG, mainLong, "test");
+
+        // First hedge cycle
+        TradeOrder hedgeShort1 = createOrder(17001L, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("99"), OrderStatus.FILLED);
+        session.addOrder(hedgeShort1);
+
+        TradeOrder hedgeClose1 = createOrderWithRelatedHedge(17002L, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("2.0"), new BigDecimal("99.5"), OrderStatus.FILLED, hedgeShort1.getOrderId());
+        session.addOrder(hedgeClose1);
+
+        // Price drops significantly - first averaging
+        TradeOrder avgLong1 = createOrderWithParent(18001L, TradingDirection.LONG, OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("1.5"), new BigDecimal("95"), OrderStatus.FILLED, mainLong.getOrderId());
+        session.addOrder(avgLong1);
+
+        // Verify first averaging state
+        assertTrue(session.isActiveLong());
+        assertTrue(session.isActiveAverageLong());
+        assertEquals(1, session.getCountAverageOrders());
+
+        // Second hedge cycle
+        TradeOrder hedgeShort2 = createOrder(19001L, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("3.5"), new BigDecimal("94"), OrderStatus.FILLED); // 2.0 + 1.5
+        session.addOrder(hedgeShort2);
+
+        TradeOrder hedgeClose2 = createOrderWithRelatedHedge(19002L, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("3.5"), new BigDecimal("94.7"), OrderStatus.FILLED, hedgeShort2.getOrderId());
+        session.addOrder(hedgeClose2);
+
+        // Price drops even more - second averaging
+        TradeOrder avgLong2 = createOrderWithParent(20001L, TradingDirection.LONG, OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("1.0"), new BigDecimal("90"), OrderStatus.FILLED, mainLong.getOrderId());
+        session.addOrder(avgLong2);
+
+        // Verify second averaging state
+        assertTrue(session.isActiveLong());
+        assertTrue(session.isActiveAverageLong());
+        assertEquals(2, session.getCountAverageOrders());
+
+        // Calculate total quantity: 2.0 + 1.5 + 1.0 = 4.5
+        BigDecimal totalQty = mainLong.getCount().add(avgLong1.getCount()).add(avgLong2.getCount());
+        assertEquals(new BigDecimal("4.5"), totalQty);
+
+        // Close first averaging position
+        when(tradingUpdatesService.closeAveragePosition(session, avgLong1.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("98"), "test", TradingDirection.LONG))
+                .thenAnswer(invocation -> {
+                    session.closeAverageLongPosition();
+                    return session;
+                });
+
+        tradingUpdatesService.closeAveragePosition(session, avgLong1.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("98"), "test", TradingDirection.LONG);
+
+        // Verify after first averaging close
+        assertFalse(session.isActiveAverageLong());
+        assertEquals(2, session.getCountAverageOrders()); // Still 2 AVERAGING_OPEN orders in list
+
+        // Close second averaging position
+        when(tradingUpdatesService.closeAveragePosition(session, avgLong2.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("97"), "test", TradingDirection.LONG))
+                .thenAnswer(invocation -> {
+                    session.closeAverageLongPosition();
+                    return session;
+                });
+
+        tradingUpdatesService.closeAveragePosition(session, avgLong2.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("97"), "test", TradingDirection.LONG);
+
+        // Verify final state
+        assertFalse(session.isActiveAverageLong());
+        assertEquals(2, session.getCountAverageOrders()); // Both AVERAGING_OPEN orders still in list
+        assertTrue(session.isActiveLong()); // Main position still active
+    }
+
+    @Test
+    @DisplayName("Cycle 7: Complex scenario with multiple averaging positions and edge cases")
+    void testCycle7ComplexAveragingScenario() {
+        // Main LONG position
+        TradeOrder mainLong = createOrder(21001L, TradingDirection.LONG, OrderPurpose.MAIN_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("100"), OrderStatus.FILLED);
+        session.onCreate("SOLUSDT", TradingDirection.LONG, mainLong, "test");
+
+        // First hedge cycle
+        TradeOrder hedgeShort1 = createOrder(22001L, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("2.0"), new BigDecimal("99"), OrderStatus.FILLED);
+        session.addOrder(hedgeShort1);
+
+        TradeOrder hedgeClose1 = createOrderWithRelatedHedge(22002L, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("2.0"), new BigDecimal("99.5"), OrderStatus.FILLED, hedgeShort1.getOrderId());
+        session.addOrder(hedgeClose1);
+
+        // First averaging position
+        TradeOrder avgLong1 = createOrderWithParent(23001L, TradingDirection.LONG, OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("1.5"), new BigDecimal("95"), OrderStatus.FILLED, mainLong.getOrderId());
+        session.addOrder(avgLong1);
+
+        // Verify first averaging state
+        assertTrue(session.isActiveLong());
+        assertTrue(session.isActiveAverageLong());
+        assertEquals(1, session.getCountAverageOrders());
+
+        // Second hedge cycle (hedging the combined position)
+        TradeOrder hedgeShort2 = createOrder(24001L, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("3.5"), new BigDecimal("94"), OrderStatus.FILLED); // 2.0 + 1.5
+        session.addOrder(hedgeShort2);
+
+        TradeOrder hedgeClose2 = createOrderWithRelatedHedge(24002L, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("3.5"), new BigDecimal("94.7"), OrderStatus.FILLED, hedgeShort2.getOrderId());
+        session.addOrder(hedgeClose2);
+
+        // Second averaging position
+        TradeOrder avgLong2 = createOrderWithParent(25001L, TradingDirection.LONG, OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("1.0"), new BigDecimal("90"), OrderStatus.FILLED, mainLong.getOrderId());
+        session.addOrder(avgLong2);
+
+        // Verify second averaging state
+        assertTrue(session.isActiveLong());
+        assertTrue(session.isActiveAverageLong());
+        assertEquals(2, session.getCountAverageOrders());
+
+        // Calculate total quantity: 2.0 + 1.5 + 1.0 = 4.5
+        BigDecimal totalQty = mainLong.getCount().add(avgLong1.getCount()).add(avgLong2.getCount());
+        assertEquals(new BigDecimal("4.5"), totalQty);
+
+        // Close first averaging position
+        when(tradingUpdatesService.closeAveragePosition(session, avgLong1.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("98"), "test", TradingDirection.LONG))
+                .thenAnswer(invocation -> {
+                    session.closeAverageLongPosition();
+                    return session;
+                });
+
+        tradingUpdatesService.closeAveragePosition(session, avgLong1.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("98"), "test", TradingDirection.LONG);
+
+        // Verify after first averaging close
+        assertFalse(session.isActiveAverageLong());
+        assertEquals(2, session.getCountAverageOrders()); // Still 2 AVERAGING_OPEN orders in list
+
+        // Close second averaging position
+        when(tradingUpdatesService.closeAveragePosition(session, avgLong2.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("97"), "test", TradingDirection.LONG))
+                .thenAnswer(invocation -> {
+                    session.closeAverageLongPosition();
+                    return session;
+                });
+
+        tradingUpdatesService.closeAveragePosition(session, avgLong2.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("97"), "test", TradingDirection.LONG);
+
+        // Verify final state
+        assertFalse(session.isActiveAverageLong());
+        assertEquals(2, session.getCountAverageOrders()); // Both AVERAGING_OPEN orders still in list
+        assertTrue(session.isActiveLong()); // Main position still active
+    }
+
+    @Test
+    @DisplayName("Cycle 8: Edge cases with very small and very large volumes")
+    void testCycle8EdgeCasesWithVolumeVariations() {
+        // Main LONG with very small volume
+        TradeOrder mainLong = createOrder(27001L, TradingDirection.LONG, OrderPurpose.MAIN_OPEN,
+                new BigDecimal("0.001"), new BigDecimal("100"), OrderStatus.FILLED);
+        session.onCreate("SOLUSDT", TradingDirection.LONG, mainLong, "test");
+
+        // Hedge with small volume
+        TradeOrder hedgeShort = createOrder(28001L, TradingDirection.SHORT, OrderPurpose.HEDGE_OPEN,
+                new BigDecimal("0.001"), new BigDecimal("99"), OrderStatus.FILLED);
+        session.addOrder(hedgeShort);
+
+        TradeOrder hedgeClose = createOrderWithRelatedHedge(28002L, TradingDirection.SHORT, OrderPurpose.HEDGE_CLOSE,
+                new BigDecimal("0.001"), new BigDecimal("99.5"), OrderStatus.FILLED, hedgeShort.getOrderId());
+        session.addOrder(hedgeClose);
+
+        // Averaging with very small volume
+        TradeOrder avgLong = createOrderWithParent(29001L, TradingDirection.LONG, OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("0.0005"), new BigDecimal("95"), OrderStatus.FILLED, mainLong.getOrderId());
+        session.addOrder(avgLong);
+
+        // Verify small volume calculations
+        BigDecimal totalQty = mainLong.getCount().add(avgLong.getCount());
+        assertEquals(new BigDecimal("0.0015"), totalQty);
+
+        // Close averaging position
+        when(tradingUpdatesService.closeAveragePosition(session, avgLong.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("98"), "test", TradingDirection.LONG))
+                .thenAnswer(invocation -> {
+                    session.closeAverageLongPosition();
+                    return session;
+                });
+
+        tradingUpdatesService.closeAveragePosition(session, avgLong.getOrderId(), mainLong.getOrderId(), 
+                SessionMode.SCALPING, OrderPurpose.AVERAGING_CLOSE, new BigDecimal("98"), "test", TradingDirection.LONG);
+
+        // Verify final state
+        assertFalse(session.isActiveAverageLong());
+        assertEquals(1, session.getCountAverageOrders());
+        assertTrue(session.isActiveLong());
+    }
+
+    // Helper methods
+    private TradeOrder createOrder(Long id, TradingDirection direction, OrderPurpose purpose, 
+                                 BigDecimal count, BigDecimal price, OrderStatus status) {
+        return TradeOrder.builder()
+                .orderId(id)
+                .direction(direction)
+                .purpose(purpose)
+                .status(status)
+                .price(price)
+                .count(count)
+                .orderTime(LocalDateTime.now())
+                .build();
+    }
+
+    private TradeOrder createOrderWithParent(Long id, TradingDirection direction, OrderPurpose purpose, 
+                                           BigDecimal count, BigDecimal price, OrderStatus status, Long parentId) {
+        return TradeOrder.builder()
+                .orderId(id)
+                .direction(direction)
+                .purpose(purpose)
+                .status(status)
+                .price(price)
+                .count(count)
+                .parentOrderId(parentId)
+                .orderTime(LocalDateTime.now())
+                .build();
+    }
+
+    private TradeOrder createOrderWithRelatedHedge(Long id, TradingDirection direction, OrderPurpose purpose, 
+                                                  BigDecimal count, BigDecimal price, OrderStatus status, Long relatedHedgeId) {
+        return TradeOrder.builder()
+                .orderId(id)
+                .direction(direction)
+                .purpose(purpose)
+                .status(status)
+                .price(price)
+                .count(count)
+                .relatedHedgeId(relatedHedgeId)
+                .orderTime(LocalDateTime.now())
+                .build();
+    }
+
+    private Order createMockOrder(BigDecimal quantity, OrderSide side, BigDecimal averagePrice) {
+        Order order = new Order();
+        order.setOrderId(System.currentTimeMillis());
+        order.setQuantity(quantity);
+        order.setSide(side);
+        order.setAveragePrice(averagePrice);
+        order.setOrderStatus(OrderStatus.FILLED);
+        return order;
+    }
+}

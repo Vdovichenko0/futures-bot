@@ -20,6 +20,7 @@ public class SessionAllDto { //for request get all
     private SessionStatus status;
     private BigDecimal pnl;
     private BigDecimal totalCommission;
+    private BigDecimal pnlTotal;
     private LocalDateTime createdTime;
     private LocalDateTime lastModified;
     private LocalDateTime endTime;

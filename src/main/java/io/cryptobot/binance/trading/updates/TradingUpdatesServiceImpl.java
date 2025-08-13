@@ -30,7 +30,7 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService {
     @Override
     public TradeSession closePosition(TradeSession session, SessionMode sessionMode, Long idOrder, Long relatedHedgeId, TradingDirection direction, OrderPurpose purpose, BigDecimal currentPrice, String context) {
         TradePlan tradePlan = tradePlanGetService.getPlan(session.getTradePlan());
-        String coin = session.getTradePlan();
+//        String coin = session.getTradePlan();
         TradeOrder entryOrder = session.getOrders().stream()
                 .filter(o -> o.getOrderId().equals(idOrder))
                 .findFirst()
@@ -39,9 +39,9 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService {
         BigDecimal entryPrice = entryOrder.getPrice();
         BigDecimal count = entryOrder.getCount();
 
-        OrderSide closeSide = entryOrder.getSide() == OrderSide.BUY
-                ? OrderSide.SELL
-                : OrderSide.BUY;
+//        OrderSide closeSide = entryOrder.getSide() == OrderSide.BUY
+//                ? OrderSide.SELL
+//                : OrderSide.BUY;
 
         //create order
 //        Order orderOpen = orderService.createOrder(coin, count.doubleValue(), closeSide, true);
@@ -73,16 +73,7 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService {
         }
 
         //calc pnl
-        BigDecimal pnlFraction;
-        if (direction == TradingDirection.LONG) {
-            pnlFraction = filledOrder.getAveragePrice()
-                    .subtract(entryPrice)
-                    .divide(entryPrice, 8, RoundingMode.HALF_UP);
-        } else {
-            pnlFraction = entryPrice
-                    .subtract(filledOrder.getAveragePrice())
-                    .divide(entryPrice, 8, RoundingMode.HALF_UP);
-        }
+        BigDecimal pnlFraction = calcPnl(direction, filledOrder, entryPrice);
         // pnlUSDT
         BigDecimal pnlAbsolute = pnlFraction
                 .multiply(count)
@@ -100,10 +91,11 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService {
     @Override
     public TradeSession openPosition(TradeSession session, SessionMode sessionMode, TradingDirection direction, OrderPurpose purpose, BigDecimal currentPrice, String context, Long parentOrderId, Long relatedHedgeId) {
         // if exists 2 orders -> not open new, last level validation
-        if (session.isActiveLong() && session.isActiveShort()) {
-            log.info("🛡️ Session {} has both LONG and SHORT positions active, skipping close operation", session.getId());
+        if (purpose == OrderPurpose.HEDGE_OPEN && (session.isActiveLong() && session.isActiveShort())) {
+            log.info("🛡️ Session {} skip HEDGE_OPEN: both directions already active", session.getId());
             return session;
         }
+
         TradePlan plan = tradePlanGetService.getPlan(session.getTradePlan());
 
         String coin = plan.getSymbol();
@@ -136,6 +128,166 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService {
 
         TradeOrder newOrder = new TradeOrder();
         newOrder.onCreate(filledOrder, BigDecimal.ZERO, sessionMode, context, plan, direction, purpose, parentOrderId, relatedHedgeId);
+
+        TradeSession updatesSession = sessionService.addOrder(session.getId(), newOrder);
+        log.error("open order {}", newOrder.getOrderId());
+        return updatesSession;
+    }
+
+//    @Override
+//    public TradeSession closeAveragePosition(TradeSession session, Long averageOrder, Long parentOrder, SessionMode sessionMode, OrderPurpose purpose, BigDecimal currentPrice, String context, TradingDirection direction) {
+//        try {
+//            if (session == null || averageOrder == null) {
+//                return session;
+//            }
+//
+//            TradePlan tradePlan = tradePlanGetService.getPlan(session.getTradePlan());
+//            String symbol = tradePlan.getSymbol();
+//
+//            // Найти усредняющий ордер и базовый ордер
+//            TradeOrder avg = session.getOrders().stream()
+//                    .filter(o -> o.getOrderId().equals(averageOrder))
+//                    .findFirst()
+//                    .orElse(null);
+//            if (avg == null) return session;
+//
+//            TradeOrder base = null;
+//            if (parentOrder != null) {
+//                base = session.getOrders().stream()
+//                        .filter(o -> o.getOrderId().equals(parentOrder))
+//                        .findFirst()
+//                        .orElse(null);
+//            }
+//
+//            BigDecimal totalCount = avg.getCount();
+//            if (base != null && base.getCount() != null) {
+//                totalCount = totalCount.add(base.getCount());
+//            }
+//            if (totalCount == null || totalCount.compareTo(BigDecimal.ZERO) <= 0) {
+//                log.warn("⚠️ Invalid total count for average close: avg={}, base={}", avg.getCount(), base != null ? base.getCount() : null);
+//                return session;
+//            }
+//
+//            // Определяем сторону закрытия по направлению
+//            OrderSide closingSide = (direction == TradingDirection.LONG) ? OrderSide.SELL : OrderSide.BUY;
+//
+//            // Создаём ордер закрытия объединённым объёмом
+//            Order orderClosed = orderService.closeOrder(totalCount, closingSide, symbol, direction);
+//
+//            if (orderClosed == null) {
+//                log.warn("⚠️ Failed to create close order for orderId: {} (position may already be closed)", averageOrder);
+//                return session;
+//            }
+//
+//            //check filled
+//            boolean filled = waitForFilledOrder(orderClosed, 15000, 200);
+//            if (!filled) {
+//                log.warn("Order {} was not filled in time", orderClosed.getOrderId());
+//                return session;
+//            }
+//
+//            Order filledOrder;
+//            try {
+//                filledOrder = orderService.getOrder(orderClosed.getOrderId());
+//                if (filledOrder == null) {
+//                    log.warn("⚠️ Failed to get filled order for orderId: {}", orderClosed.getOrderId());
+//                    return session;
+//                }
+//            } catch (Exception e) {
+//                log.error("❌ Error getting filled order for orderId {}: {}", orderClosed.getOrderId(), e.getMessage());
+//                return session;
+//            }
+//
+//
+//            // Средневзвешенная цена входа между двумя ордерами (avg + base)
+//            BigDecimal avgCount = avg.getCount() == null ? BigDecimal.ZERO : avg.getCount();
+//            BigDecimal weighted = avg.getPrice().multiply(avgCount);
+//            if (base != null && base.getCount() != null) {
+//                weighted = weighted.add(base.getPrice().multiply(base.getCount()));
+//            }
+//            BigDecimal entryPrice = weighted.divide(totalCount, 8, RoundingMode.HALF_UP);
+//
+//            //calc pnl
+//            BigDecimal pnlFraction = calcPnl(direction, filledOrder, entryPrice);
+//            BigDecimal pnlAbsolute = pnlFraction
+//                    .multiply(totalCount)
+//                    .multiply(entryPrice)
+//                    .setScale(8, RoundingMode.HALF_UP);
+//
+//            TradeOrder newOrder = new TradeOrder();
+//            newOrder.onCreate(
+//                    filledOrder,
+//                    pnlAbsolute,
+//                    sessionMode,
+//                    context,
+//                    tradePlan,
+//                    direction,
+//                    purpose,
+//                    averageOrder,
+//                    avg.getRelatedHedgeId()
+//            );
+//
+//            return sessionService.addOrder(session.getId(), newOrder);
+//        } catch (Exception e) {
+//            log.error("closeAveragePosition error: {}", e.getMessage(), e);
+//            return session;
+//        }
+//    }
+
+    @Override
+    public TradeSession openAveragePosition(TradeSession session, SessionMode sessionMode, TradingDirection direction, OrderPurpose purpose, BigDecimal currentPrice, String context, Long parentOrderId) {
+        //todo test
+        if (purpose == OrderPurpose.AVERAGING_OPEN) {
+            boolean avgActiveThisDir = (direction == TradingDirection.LONG) ? session.isActiveAverageLong() : session.isActiveAverageShort();
+            if (avgActiveThisDir) {
+                log.info("🛡️ Session {} skip AVERAGING_OPEN {}: averaging already active for this direction", session.getId(), direction);
+                return session;
+            }
+        }
+
+        TradeOrder parentOrder = session.getOrders().stream()
+                .filter(o -> o.getOrderId().equals(parentOrderId))
+                .findFirst()
+                .orElse(null);
+        if (parentOrder==null) return session;
+
+        TradePlan plan = tradePlanGetService.getPlan(session.getTradePlan());
+
+        String coin = plan.getSymbol();
+        BigDecimal amount = plan.getAmountPerTrade();
+        BigDecimal lotSize = plan.getSizes().getLotSize();
+        BigDecimal count = amount.divide(currentPrice, 8, RoundingMode.DOWN);
+
+        if (count.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("Invalid quantity for " + coin + count);
+        }
+        count = count.divide(lotSize, 0, RoundingMode.DOWN).multiply(lotSize);
+        OrderSide side = direction.equals(TradingDirection.SHORT) ? OrderSide.SELL : OrderSide.BUY;
+        Order orderOpen = orderService.createOrder(coin, count.doubleValue(), side, true);
+        if (orderOpen == null) {
+            log.warn("⚠️ Failed to create order for averaging");
+            return session;
+        }
+        boolean filled = waitForFilledOrder(orderOpen, 5000, 200);
+        if (!filled) {
+            log.warn("Order {} was not filled in time", orderOpen.getOrderId());
+            return session;
+        }
+        Order filledOrder;
+        try {
+            filledOrder = orderService.getOrder(orderOpen.getOrderId());
+            if (filledOrder == null) {
+                log.warn("⚠️ Failed to get filled order for orderId: {}", orderOpen.getOrderId());
+                return session;
+            }
+        } catch (Exception e) {
+            log.error("❌ Error getting filled order for orderId {}: {}", orderOpen.getOrderId(), e.getMessage());
+            return session;
+        }
+
+        TradeOrder newOrder = new TradeOrder();
+        newOrder.onCreateAverage(filledOrder, parentOrder, BigDecimal.ZERO, sessionMode, context, plan, direction, purpose);
+
         TradeSession updatesSession = sessionService.addOrder(session.getId(), newOrder);
         log.error("open order {}", newOrder.getOrderId());
         return updatesSession;
@@ -169,5 +321,19 @@ public class TradingUpdatesServiceImpl implements TradingUpdatesService {
         }
         log.warn("⚠️ Order {} not filled after {}ms", order.getOrderId(), maxWaitMillis);
         return false;
+    }
+
+    private BigDecimal calcPnl(TradingDirection direction, Order filledOrder, BigDecimal entryPrice) {
+        BigDecimal pnlFraction;
+        if (direction == TradingDirection.LONG) {
+            pnlFraction = filledOrder.getAveragePrice()
+                    .subtract(entryPrice)
+                    .divide(entryPrice, 8, RoundingMode.HALF_UP);
+        } else {
+            pnlFraction = entryPrice
+                    .subtract(filledOrder.getAveragePrice())
+                    .divide(entryPrice, 8, RoundingMode.HALF_UP);
+        }
+        return pnlFraction;
     }
 }

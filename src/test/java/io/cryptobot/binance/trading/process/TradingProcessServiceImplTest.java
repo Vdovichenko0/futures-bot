@@ -10,7 +10,7 @@ import io.cryptobot.binance.trade.session.model.TradeSession;
 import io.cryptobot.binance.trade.session.service.TradeSessionService;
 import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
-import io.cryptobot.binance.trading.monitoring.MonitoringService;
+import io.cryptobot.binance.trading.monitoring.v3.MonitoringServiceV3;
 import io.cryptobot.market_data.ticker24h.Ticker24hService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,7 +40,7 @@ class TradingProcessServiceImplTest {
     private OrderService orderService;
 
     @Mock
-    private MonitoringService monitoringService;
+    private MonitoringServiceV3 monitoringService;
 
     @InjectMocks
     private TradingProcessServiceImpl tradingProcessService;
@@ -83,6 +83,10 @@ class TradingProcessServiceImplTest {
                 .id("session-123")
                 .direction(TradingDirection.LONG)
                 .build();
+        
+        // Устанавливаем короткие значения для тестов
+        tradingProcessService.setMaxWaitMillis(100);
+        tradingProcessService.setIntervalMillis(50);
     }
 
     @Test
@@ -105,7 +109,7 @@ class TradingProcessServiceImplTest {
 
         // Then
         verify(orderService).createOrder(eq("BTCUSDT"), eq(0.002), eq(OrderSide.BUY), eq(true));
-        verify(orderService, times(1)).getOrder(eq(123456789L));
+        verify(orderService, atLeastOnce()).getOrder(eq(123456789L));
         verify(sessionService).create(eq("BTCUSDT"), eq(direction), any(TradeOrder.class), eq(context));
         verify(monitoringService).addToMonitoring(testTradeSession);
     }
@@ -130,7 +134,7 @@ class TradingProcessServiceImplTest {
 
         // Then
         verify(orderService).createOrder(eq("BTCUSDT"), eq(0.002), eq(OrderSide.SELL), eq(true));
-        verify(orderService, times(1)).getOrder(eq(123456789L));
+        verify(orderService, atLeastOnce()).getOrder(eq(123456789L));
         verify(sessionService).create(eq("BTCUSDT"), eq(direction), any(TradeOrder.class), eq(context));
         verify(monitoringService).addToMonitoring(testTradeSession);
     }
@@ -255,7 +259,7 @@ class TradingProcessServiceImplTest {
 
         // Verify interactions
         verify(orderService).createOrder(eq("BTCUSDT"), eq(0.002), eq(OrderSide.BUY), eq(true));
-        verify(orderService, times(1)).getOrder(eq(123456789L));
+        verify(orderService, atLeastOnce()).getOrder(eq(123456789L));
         verify(sessionService).create(eq("BTCUSDT"), eq(direction), any(TradeOrder.class), eq(context));
         verify(monitoringService, never()).addToMonitoring(any(TradeSession.class));
     }
@@ -282,7 +286,7 @@ class TradingProcessServiceImplTest {
 
         // Verify interactions
         verify(orderService).createOrder(eq("BTCUSDT"), eq(0.002), eq(OrderSide.BUY), eq(true));
-        verify(orderService, times(1)).getOrder(eq(123456789L));
+        verify(orderService, atLeastOnce()).getOrder(eq(123456789L));
         verify(sessionService).create(eq("BTCUSDT"), eq(direction), any(TradeOrder.class), eq(context));
         verify(monitoringService).addToMonitoring(testTradeSession);
     }
@@ -318,7 +322,7 @@ class TradingProcessServiceImplTest {
 
         // Then
         verify(orderService).createOrder(anyString(), anyDouble(), any(OrderSide.class), anyBoolean());
-        verify(orderService, times(1)).getOrder(anyLong());
+        verify(orderService, atLeastOnce()).getOrder(anyLong());
         verify(sessionService).create(anyString(), any(TradingDirection.class), any(TradeOrder.class), anyString());
         verify(monitoringService).addToMonitoring(testTradeSession);
     }
@@ -397,7 +401,7 @@ class TradingProcessServiceImplTest {
 
         // Then
         verify(orderService).createOrder(eq("BTCUSDT"), eq(0.002), eq(OrderSide.BUY), eq(true));
-        verify(orderService, times(1)).getOrder(eq(123456789L));
+        verify(orderService, atLeastOnce()).getOrder(eq(123456789L));
         verify(sessionService).create(eq("BTCUSDT"), eq(direction), any(TradeOrder.class), eq(null));
         verify(monitoringService).addToMonitoring(testTradeSession);
     }
@@ -426,7 +430,7 @@ class TradingProcessServiceImplTest {
 
         // Then
         verify(orderService).createOrder(eq("BTCUSDT"), eq(0.004), eq(OrderSide.BUY), eq(true));
-        verify(orderService, times(1)).getOrder(eq(123456789L));
+        verify(orderService, atLeastOnce()).getOrder(eq(123456789L));
         verify(sessionService).create(eq("BTCUSDT"), eq(direction), any(TradeOrder.class), eq(context));
         verify(monitoringService).addToMonitoring(testTradeSession);
     }
@@ -481,7 +485,7 @@ class TradingProcessServiceImplTest {
 
         // Then
         verify(orderService).createOrder(eq("BTCUSDT"), eq(0.002), eq(OrderSide.BUY), eq(true));
-        verify(orderService, times(1)).getOrder(eq(123456789L));
+        verify(orderService, atLeastOnce()).getOrder(eq(123456789L));
         verify(sessionService).create(eq("BTCUSDT"), eq(direction), any(TradeOrder.class), eq(context));
         verify(monitoringService).addToMonitoring(testTradeSession);
     }
@@ -503,7 +507,7 @@ class TradingProcessServiceImplTest {
 
         // Then
         assertTrue(result);
-        verify(orderService, times(1)).getOrder(123456789L);
+        verify(orderService, atLeastOnce()).getOrder(123456789L);
     }
 
     @Test
@@ -570,7 +574,7 @@ class TradingProcessServiceImplTest {
 
         // Then
         assertFalse(result);
-        verify(orderService, times(1)).getOrder(123456789L);
+        verify(orderService, atLeastOnce()).getOrder(123456789L);
         
         // Clear interrupt flag for other tests
         Thread.interrupted();

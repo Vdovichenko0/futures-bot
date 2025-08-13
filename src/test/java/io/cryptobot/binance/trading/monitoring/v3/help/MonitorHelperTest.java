@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -31,6 +32,8 @@ class MonitorHelperTest {
     private TradeOrder hedgeShortOrder;
     private TradeOrder mainCloseOrder;
     private TradeOrder hedgeCloseOrder;
+    private TradeOrder avgLongOrder;
+    private TradeOrder avgCloseLong;
 
     @BeforeEach
     void setUp() {
@@ -73,6 +76,28 @@ class MonitorHelperTest {
                 .price(new BigDecimal("53000"))
                 .count(new BigDecimal("0.1"))
                 .orderTime(LocalDateTime.now().plusMinutes(15))
+                .build();
+
+        avgLongOrder = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("49500"))
+                .count(new BigDecimal("0.2"))
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(12))
+                .build();
+
+        avgCloseLong = TradeOrder.builder()
+                .orderId(2101L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_CLOSE)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("50500"))
+                .count(new BigDecimal("0.2"))
+                .parentOrderId(2100L)
+                .orderTime(LocalDateTime.now().plusMinutes(40))
                 .build();
 
         mainCloseOrder = TradeOrder.builder()
@@ -162,6 +187,37 @@ class MonitorHelperTest {
         assertNotNull(result);
         assertEquals(1001L, result.getOrderId());
         assertEquals(OrderPurpose.MAIN_OPEN, result.getPurpose());
+    }
+
+    @Test
+    @DisplayName("Averaging has priority over MAIN/HEDGE in latest-active selection")
+    void testAveragingPriorityInLatestActive() {
+        // Given
+        session.addOrder(hedgeLongOrder);
+        session.addOrder(avgLongOrder);
+
+        // When
+        TradeOrder result = monitorHelper.getLatestActiveOrderByDirection(session, TradingDirection.LONG);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(OrderPurpose.AVERAGING_OPEN, result.getPurpose());
+        assertEquals(2100L, result.getOrderId());
+    }
+
+    @Test
+    @DisplayName("AVERAGING_OPEN is considered closed by AVERAGING_CLOSE with parent link")
+    void testIsOpenOrderClosedForAveraging() {
+        // Given
+        session.addOrder(avgLongOrder);
+        assertFalse(monitorHelper.isOpenOrderClosed(session, avgLongOrder));
+        session.addOrder(avgCloseLong);
+
+        // When
+        boolean closed = monitorHelper.isOpenOrderClosed(session, avgLongOrder);
+
+        // Then
+        assertTrue(closed);
     }
 
     @Test
@@ -672,5 +728,850 @@ class MonitorHelperTest {
         // Then
         assertNotNull(result);
         assertEquals(1005L, result.getOrderId()); // Новейший ордер
+    }
+
+    @Test
+    @DisplayName("canOpenAverageByDirection allows when flag false and blocks when true")
+    void testCanOpenAverageByDirection() {
+        // Given
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainLongOrder, "ctx");
+        // Initially no averaging flags
+        assertTrue(monitorHelper.canOpenAverageByDirection(session, TradingDirection.LONG));
+        // When open flag set
+        session.openAverageLongPosition();
+        assertFalse(monitorHelper.canOpenAverageByDirection(session, TradingDirection.LONG));
+        // Short side independent
+        assertTrue(monitorHelper.canOpenAverageByDirection(session, TradingDirection.SHORT));
+        session.openAverageShortPosition();
+        assertFalse(monitorHelper.canOpenAverageByDirection(session, TradingDirection.SHORT));
+    }
+
+    // ========== НОВЫЕ ТЕСТЫ ДЛЯ ОБНОВЛЕННОЙ ЛОГИКИ ==========
+
+    @Test
+    @DisplayName("HEDGE_OPEN should be considered closed when AVERAGING_CLOSE exists")
+    void shouldConsiderHedgeOpenClosedWhenAveragingCloseExists() {
+        // Given: HEDGE_OPEN -> AVERAGING_OPEN -> AVERAGING_CLOSE
+        TradeOrder hedgeOpen = TradeOrder.builder()
+                .orderId(2001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.HEDGE_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averagingOpen = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(2001L) // ссылается на HEDGE_OPEN
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeOrder averagingClose = TradeOrder.builder()
+                .orderId(2101L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_CLOSE)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(2100L) // закрывает AVERAGING_OPEN
+                .orderTime(LocalDateTime.now().plusMinutes(10))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("BTCUSDT", TradingDirection.LONG, hedgeOpen, "test");
+        testSession.addOrder(averagingOpen);
+        testSession.addOrder(averagingClose);
+
+        // When
+        boolean isClosed = monitorHelper.isOpenOrderClosed(testSession, hedgeOpen);
+
+        // Then
+        assertTrue(isClosed, "HEDGE_OPEN should be considered closed when AVERAGING_CLOSE exists");
+    }
+
+    @Test
+    @DisplayName("MAIN_OPEN should be considered closed when AVERAGING_CLOSE exists")
+    void shouldConsiderMainOpenClosedWhenAveragingCloseExists() {
+        // Given: MAIN_OPEN -> AVERAGING_OPEN -> AVERAGING_CLOSE
+        TradeOrder mainOpen = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averagingOpen = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(1001L) // ссылается на MAIN_OPEN
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeOrder averagingClose = TradeOrder.builder()
+                .orderId(2101L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_CLOSE)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(2100L) // закрывает AVERAGING_OPEN
+                .orderTime(LocalDateTime.now().plusMinutes(10))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("BTCUSDT", TradingDirection.LONG, mainOpen, "test");
+        testSession.addOrder(averagingOpen);
+        testSession.addOrder(averagingClose);
+
+        // When
+        boolean isClosed = monitorHelper.isOpenOrderClosed(testSession, mainOpen);
+
+        // Then
+        assertTrue(isClosed, "MAIN_OPEN should be considered closed when AVERAGING_CLOSE exists");
+    }
+
+    @Test
+    @DisplayName("HEDGE_OPEN should NOT be considered closed when AVERAGING_OPEN exists but no AVERAGING_CLOSE")
+    void shouldNotConsiderHedgeOpenClosedWhenAveragingOpenExistsButNoClose() {
+        // Given: HEDGE_OPEN -> AVERAGING_OPEN (без AVERAGING_CLOSE)
+        TradeOrder hedgeOpen = TradeOrder.builder()
+                .orderId(2001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.HEDGE_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averagingOpen = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(2001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.addOrder(hedgeOpen);
+        testSession.addOrder(averagingOpen);
+
+        // When
+        boolean isClosed = monitorHelper.isOpenOrderClosed(testSession, hedgeOpen);
+
+        // Then
+        assertFalse(isClosed, "HEDGE_OPEN should NOT be considered closed when only AVERAGING_OPEN exists");
+    }
+
+    @Test
+    @DisplayName("isDirectionActiveByOrders should prioritize AVERAGING_OPEN over HEDGE_OPEN")
+    void shouldPrioritizeAveragingOverHedgeInDirectionActiveByOrders() {
+        // Given: MAIN_OPEN, HEDGE_OPEN, AVERAGING_OPEN (все активны)
+        TradeOrder mainOpen = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder hedgeOpen = TradeOrder.builder()
+                .orderId(2001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.HEDGE_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeOrder averagingOpen = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(10))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.addOrder(mainOpen);
+        testSession.addOrder(hedgeOpen);
+        testSession.addOrder(averagingOpen);
+
+        // When
+        boolean isActive = monitorHelper.isDirectionActiveByOrders(testSession, TradingDirection.LONG);
+
+        // Then
+        assertTrue(isActive, "Direction should be active when AVERAGING_OPEN exists");
+    }
+
+    @Test
+    @DisplayName("isDirectionActiveByOrders should return false when all orders are closed")
+    void shouldReturnFalseWhenAllOrdersAreClosed() {
+        // Given: MAIN_OPEN -> MAIN_CLOSE
+        TradeOrder mainOpen = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder mainClose = TradeOrder.builder()
+                .orderId(3001L)
+                .direction(TradingDirection.SHORT)
+                .purpose(OrderPurpose.MAIN_CLOSE)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.addOrder(mainOpen);
+        testSession.addOrder(mainClose);
+
+        // When
+        boolean isActive = monitorHelper.isDirectionActiveByOrders(testSession, TradingDirection.LONG);
+
+        // Then
+        assertFalse(isActive, "Direction should NOT be active when all orders are closed");
+    }
+
+    @Test
+    @DisplayName("isMainStillActive should return false when averaging exists and is active")
+    void shouldReturnFalseWhenMainHasActiveAveraging() {
+        // Given: MAIN_OPEN -> AVERAGING_OPEN (активное)
+        TradeOrder mainOpen = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averagingOpen = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("BTCUSDT", TradingDirection.LONG, mainOpen, "test");
+        testSession.addOrder(averagingOpen);
+
+        // When
+        boolean isMainActive = monitorHelper.isMainStillActive(testSession);
+
+        // Then
+        assertFalse(isMainActive, "MAIN should NOT be active when AVERAGING_OPEN exists and is active");
+    }
+
+    @Test
+    @DisplayName("isMainStillActive should return false when averaging is closed and position is closed")
+    void shouldReturnFalseWhenMainHasClosedAveraging() {
+        // Given: MAIN_OPEN -> AVERAGING_OPEN -> AVERAGING_CLOSE
+        TradeOrder mainOpen = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averagingOpen = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeOrder averagingClose = TradeOrder.builder()
+                .orderId(2101L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_CLOSE)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(2100L)
+                .orderTime(LocalDateTime.now().plusMinutes(10))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("BTCUSDT", TradingDirection.LONG, mainOpen, "test");
+        testSession.addOrder(averagingOpen);
+        testSession.addOrder(averagingClose);
+
+        // Debug: проверим что происходит
+        boolean isAveragingClosed = monitorHelper.isOpenOrderClosed(testSession, averagingOpen);
+        System.out.println("DEBUG: isAveragingClosed = " + isAveragingClosed);
+        
+        Optional<TradeOrder> avgOverMain = monitorHelper.findLastAveragingOpenForParent(testSession, mainOpen);
+        System.out.println("DEBUG: avgOverMain present = " + avgOverMain.isPresent());
+        if (avgOverMain.isPresent()) {
+            System.out.println("DEBUG: avgOverMain orderId = " + avgOverMain.get().getOrderId());
+            boolean isAvgClosedInMethod = monitorHelper.isOpenOrderClosed(testSession, avgOverMain.get());
+            System.out.println("DEBUG: isAvgClosedInMethod = " + isAvgClosedInMethod);
+        }
+        
+        // Debug: проверим состояние сессии
+        System.out.println("DEBUG: session.isActiveLong() = " + testSession.isActiveLong());
+        System.out.println("DEBUG: session.isActiveShort() = " + testSession.isActiveShort());
+        System.out.println("DEBUG: main.getDirection() = " + mainOpen.getDirection());
+        System.out.println("DEBUG: session.getMainOrder() != null = " + (testSession.getMainOrder() != null));
+
+        // When
+        boolean isMainActive = monitorHelper.isMainStillActive(testSession);
+
+        // Then
+        // По новой логике: после закрытия усреднения позиция закрывается для новых ордеров,
+        // но MAIN ордер остается активным для мониторинга
+        assertFalse(isMainActive, "MAIN should NOT be active when AVERAGING_CLOSE closes the position");
+    }
+
+    @Test
+    @DisplayName("getActiveOrderForMonitoring should return AVERAGING_OPEN when it exists and is active")
+    void shouldReturnAveragingOpenWhenActiveForMonitoring() {
+        // Given: MAIN_OPEN + AVERAGING_OPEN (активное)
+        TradeOrder mainOpen = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averagingOpen = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("BTCUSDT", TradingDirection.LONG, mainOpen, "test");
+        testSession.addOrder(averagingOpen);
+
+        // When
+        TradeOrder activeOrder = monitorHelper.getActiveOrderForMonitoring(testSession);
+
+        // Then
+        assertNotNull(activeOrder);
+        assertEquals(OrderPurpose.AVERAGING_OPEN, activeOrder.getPurpose());
+        assertEquals(2100L, activeOrder.getOrderId());
+    }
+
+    @Test
+    @DisplayName("getActiveOrderForMonitoring should return HEDGE_OPEN when MAIN is closed but HEDGE is active")
+    void shouldReturnHedgeOpenWhenMainClosedButHedgeActive() {
+        // Given: MAIN_OPEN -> MAIN_CLOSE + HEDGE_OPEN (активный)
+        TradeOrder mainOpen = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder mainClose = TradeOrder.builder()
+                .orderId(3001L)
+                .direction(TradingDirection.SHORT)
+                .purpose(OrderPurpose.MAIN_CLOSE)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeOrder hedgeOpen = TradeOrder.builder()
+                .orderId(2001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.HEDGE_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now().plusMinutes(10))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("BTCUSDT", TradingDirection.LONG, mainOpen, "test");
+        testSession.addOrder(mainClose);
+        testSession.addOrder(hedgeOpen);
+
+        // When
+        TradeOrder activeOrder = monitorHelper.getActiveOrderForMonitoring(testSession);
+
+        // Then
+        assertNotNull(activeOrder);
+        assertEquals(OrderPurpose.HEDGE_OPEN, activeOrder.getPurpose());
+        assertEquals(2001L, activeOrder.getOrderId());
+    }
+
+    @Test
+    @DisplayName("getActiveOrderForMonitoring should return null when no active orders")
+    void shouldReturnNullWhenNoActiveOrdersForMonitoring() {
+        // Given: MAIN_OPEN -> MAIN_CLOSE (все закрыто)
+        TradeOrder mainOpen = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder mainClose = TradeOrder.builder()
+                .orderId(3001L)
+                .direction(TradingDirection.SHORT)
+                .purpose(OrderPurpose.MAIN_CLOSE)
+                .status(OrderStatus.FILLED)
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("BTCUSDT", TradingDirection.LONG, mainOpen, "test");
+        testSession.addOrder(mainClose);
+
+        // When
+        TradeOrder activeOrder = monitorHelper.getActiveOrderForMonitoring(testSession);
+
+        // Then
+        assertNull(activeOrder, "Should return null when no active orders");
+    }
+
+    @Test
+    @DisplayName("getActiveOrderForMonitoring should return main order when both directions active")
+    void shouldReturnMainOrderWhenBothDirectionsActive() {
+        // Given: MAIN_OPEN (LONG) + HEDGE_OPEN (SHORT) - обе активны
+        TradeOrder mainLong = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder hedgeShort = TradeOrder.builder()
+                .orderId(2001L)
+                .direction(TradingDirection.SHORT)
+                .purpose(OrderPurpose.HEDGE_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("BTCUSDT", TradingDirection.LONG, mainLong, "test");
+        testSession.addOrder(hedgeShort);
+
+        // When
+        TradeOrder activeOrder = monitorHelper.getActiveOrderForMonitoring(testSession);
+
+        // Then
+        assertNotNull(activeOrder);
+        assertEquals(OrderPurpose.MAIN_OPEN, activeOrder.getPurpose());
+        assertEquals(1001L, activeOrder.getOrderId());
+    }
+
+    @Test
+    @DisplayName("isOpenOrderClosed should handle null order gracefully")
+    void shouldHandleNullOrderInIsOpenOrderClosed() {
+        // Given
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+
+        // When
+        boolean result = monitorHelper.isOpenOrderClosed(testSession, null);
+
+        // Then
+        assertFalse(result, "Should return false for null order");
+    }
+
+    @Test
+    @DisplayName("isOpenOrderClosed should handle null purpose gracefully")
+    void shouldHandleNullPurposeInIsOpenOrderClosed() {
+        // Given
+        TradeOrder orderWithNullPurpose = TradeOrder.builder()
+                .orderId(1001L)
+                .purpose(null)
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+
+        // When
+        boolean result = monitorHelper.isOpenOrderClosed(testSession, orderWithNullPurpose);
+
+        // Then
+        assertFalse(result, "Should return false for order with null purpose");
+    }
+
+    @Test
+    @DisplayName("isAverageActive should return true when flag is set")
+    void shouldReturnTrueWhenAverageFlagIsSet() {
+        // Given
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.openAverageLongPosition();
+
+        // When
+        boolean isActive = monitorHelper.isAverageActive(testSession, TradingDirection.LONG);
+
+        // Then
+        assertTrue(isActive, "Should return true when averaging flag is set");
+    }
+
+    @Test
+    @DisplayName("isAverageActive should return true when averaging order exists and is not closed")
+    void shouldReturnTrueWhenAveragingOrderExistsAndNotClosed() {
+        // Given
+        TradeOrder averagingOpen = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.addOrder(averagingOpen);
+
+        // When
+        boolean isActive = monitorHelper.isAverageActive(testSession, TradingDirection.LONG);
+
+        // Then
+        assertTrue(isActive, "Should return true when averaging order exists and is not closed");
+    }
+
+    @Test
+    @DisplayName("getLatestActiveAverageByDirection should return latest averaging order")
+    void shouldReturnLatestActiveAverageByDirection() {
+        // Given: два AVERAGING_OPEN ордера
+        TradeOrder averaging1 = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averaging2 = TradeOrder.builder()
+                .orderId(2101L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.addOrder(averaging1);
+        testSession.addOrder(averaging2);
+
+        // When
+        TradeOrder result = monitorHelper.getLatestActiveAverageByDirection(testSession, TradingDirection.LONG);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(2101L, result.getOrderId(), "Should return the latest averaging order");
+    }
+
+    @Test
+    @DisplayName("getLastFilledAveragingOrderByDirection should return latest filled averaging order")
+    void shouldReturnLatestFilledAveragingOrderByDirection() {
+        // Given: два AVERAGING_OPEN ордера
+        TradeOrder averaging1 = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averaging2 = TradeOrder.builder()
+                .orderId(2101L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.addOrder(averaging1);
+        testSession.addOrder(averaging2);
+
+        // When
+        TradeOrder result = monitorHelper.getLastFilledAveragingOrderByDirection(testSession, TradingDirection.LONG);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(2101L, result.getOrderId(), "Should return the latest filled averaging order");
+    }
+
+    @Test
+    @DisplayName("shouldOpenAverageLongPosition_whenMainLongExists")
+    void shouldOpenAverageLongPosition_whenMainLongExists() {
+        // Given: MAIN_OPEN LONG + AVERAGING_OPEN LONG
+        TradeOrder mainLong = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("50000"))
+                .count(new BigDecimal("0.1"))
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averagingLong = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("49500"))
+                .count(new BigDecimal("0.2"))
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("test-plan", TradingDirection.LONG, mainLong, "test-context");
+        testSession.addOrder(averagingLong);
+
+        // When
+        TradeOrder activeOrder = monitorHelper.getActiveOrderForMonitoring(testSession);
+
+        // Then
+        assertNotNull(activeOrder);
+        assertEquals(OrderPurpose.AVERAGING_OPEN, activeOrder.getPurpose());
+        assertEquals(2100L, activeOrder.getOrderId());
+        assertEquals(new BigDecimal("0.2"), activeOrder.getCount());
+    }
+
+    @Test
+    @DisplayName("shouldCloseCombinedPosition_whenAveragingCloseExecuted")
+    void shouldCloseCombinedPosition_whenAveragingCloseExecuted() {
+        // Given: MAIN_OPEN + AVERAGING_OPEN + AVERAGING_CLOSE
+        TradeOrder mainLong = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("50000"))
+                .count(new BigDecimal("0.1"))
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averagingLong = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("49500"))
+                .count(new BigDecimal("0.2"))
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeOrder averagingClose = TradeOrder.builder()
+                .orderId(2101L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_CLOSE)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("50500"))
+                .count(new BigDecimal("0.3")) // 0.1 + 0.2 = 0.3
+                .parentOrderId(2100L)
+                .orderTime(LocalDateTime.now().plusMinutes(10))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("test-plan", TradingDirection.LONG, mainLong, "test-context");
+        testSession.addOrder(averagingLong);
+        testSession.addOrder(averagingClose);
+
+        // When
+        boolean isMainClosed = monitorHelper.isOpenOrderClosed(testSession, mainLong);
+        boolean isAveragingClosed = monitorHelper.isOpenOrderClosed(testSession, averagingLong);
+        TradeOrder activeOrder = monitorHelper.getActiveOrderForMonitoring(testSession);
+
+        // Then
+        assertTrue(isMainClosed, "MAIN_OPEN should be considered closed when AVERAGING_CLOSE exists");
+        assertTrue(isAveragingClosed, "AVERAGING_OPEN should be considered closed when AVERAGING_CLOSE exists");
+        assertNull(activeOrder, "No active order should exist after averaging close");
+    }
+
+    @Test
+    @DisplayName("shouldCalculateCorrectQuantities_whenAveragingCombined")
+    void shouldCalculateCorrectQuantities_whenAveragingCombined() {
+        // Given: MAIN_OPEN (0.1) + AVERAGING_OPEN (0.2) = Combined (0.3)
+        TradeOrder mainLong = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("50000"))
+                .count(new BigDecimal("0.1"))
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averagingLong = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("49500"))
+                .count(new BigDecimal("0.2"))
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("test-plan", TradingDirection.LONG, mainLong, "test-context");
+        testSession.addOrder(averagingLong);
+
+        // When
+        TradeOrder activeOrder = monitorHelper.getActiveOrderForMonitoring(testSession);
+
+        // Then
+        assertNotNull(activeOrder);
+        assertEquals(OrderPurpose.AVERAGING_OPEN, activeOrder.getPurpose());
+        assertEquals(new BigDecimal("0.2"), activeOrder.getCount());
+        
+        // Проверяем что активный ордер - это усредняющий
+        assertEquals(2100L, activeOrder.getOrderId());
+    }
+
+    @Test
+    @DisplayName("shouldHandleMultipleAveragingOrders_whenSequentialAveraging")
+    void shouldHandleMultipleAveragingOrders_whenSequentialAveraging() {
+        // Given: MAIN_OPEN + AVERAGING_OPEN1 + AVERAGING_OPEN2
+        TradeOrder mainLong = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("50000"))
+                .count(new BigDecimal("0.1"))
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averaging1 = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("49500"))
+                .count(new BigDecimal("0.2"))
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeOrder averaging2 = TradeOrder.builder()
+                .orderId(2101L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("49000"))
+                .count(new BigDecimal("0.3"))
+                .parentOrderId(2100L) // ссылается на предыдущее усреднение
+                .orderTime(LocalDateTime.now().plusMinutes(10))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("test-plan", TradingDirection.LONG, mainLong, "test-context");
+        testSession.addOrder(averaging1);
+        testSession.addOrder(averaging2);
+
+        // When
+        TradeOrder activeOrder = monitorHelper.getActiveOrderForMonitoring(testSession);
+
+        // Then
+        assertNotNull(activeOrder);
+        assertEquals(OrderPurpose.AVERAGING_OPEN, activeOrder.getPurpose());
+        assertEquals(2101L, activeOrder.getOrderId()); // последний усредняющий ордер
+        assertEquals(new BigDecimal("0.3"), activeOrder.getCount());
+    }
+
+    @Test
+    @DisplayName("shouldCloseAllPositions_whenFinalAveragingCloseExecuted")
+    void shouldCloseAllPositions_whenFinalAveragingCloseExecuted() {
+        // Given: MAIN_OPEN + AVERAGING_OPEN1 + AVERAGING_OPEN2 + AVERAGING_CLOSE
+        TradeOrder mainLong = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("50000"))
+                .count(new BigDecimal("0.1"))
+                .orderTime(LocalDateTime.now())
+                .build();
+
+        TradeOrder averaging1 = TradeOrder.builder()
+                .orderId(2100L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("49500"))
+                .count(new BigDecimal("0.2"))
+                .parentOrderId(1001L)
+                .orderTime(LocalDateTime.now().plusMinutes(5))
+                .build();
+
+        TradeOrder averaging2 = TradeOrder.builder()
+                .orderId(2101L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("49000"))
+                .count(new BigDecimal("0.3"))
+                .parentOrderId(2100L)
+                .orderTime(LocalDateTime.now().plusMinutes(10))
+                .build();
+
+        TradeOrder averagingClose = TradeOrder.builder()
+                .orderId(2102L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.AVERAGING_CLOSE)
+                .status(OrderStatus.FILLED)
+                .price(new BigDecimal("50500"))
+                .count(new BigDecimal("0.6")) // 0.1 + 0.2 + 0.3 = 0.6
+                .parentOrderId(2101L)
+                .orderTime(LocalDateTime.now().plusMinutes(15))
+                .build();
+
+        TradeSession testSession = new TradeSession();
+        testSession.setId("test-session");
+        testSession.onCreate("test-plan", TradingDirection.LONG, mainLong, "test-context");
+        testSession.addOrder(averaging1);
+        testSession.addOrder(averaging2);
+        testSession.addOrder(averagingClose);
+
+        // When
+        boolean isMainClosed = monitorHelper.isOpenOrderClosed(testSession, mainLong);
+        boolean isAveraging1Closed = monitorHelper.isOpenOrderClosed(testSession, averaging1);
+        boolean isAveraging2Closed = monitorHelper.isOpenOrderClosed(testSession, averaging2);
+        TradeOrder activeOrder = monitorHelper.getActiveOrderForMonitoring(testSession);
+
+        // Then
+        assertTrue(isMainClosed, "MAIN_OPEN should be closed");
+        assertTrue(isAveraging1Closed, "First AVERAGING_OPEN should be closed");
+        assertTrue(isAveraging2Closed, "Second AVERAGING_OPEN should be closed");
+        assertNull(activeOrder, "No active order should exist");
     }
 }

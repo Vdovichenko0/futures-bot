@@ -12,4 +12,8 @@ public interface TradingUpdatesService {
 
     TradeSession openPosition(TradeSession session, SessionMode sessionMode, TradingDirection direction, OrderPurpose purpose, BigDecimal currentPrice, String context, Long parentOrderId, Long relatedHedgeId);
 
-    }
+//    TradeSession closeAveragePosition(TradeSession session, Long averageOrder,Long parentOrder, SessionMode sessionMode, OrderPurpose purpose, BigDecimal currentPrice, String context, TradingDirection direction);
+
+    TradeSession openAveragePosition(TradeSession session, SessionMode sessionMode, TradingDirection direction, OrderPurpose purpose, BigDecimal currentPrice, String context, Long parentOrderId);
+
+}

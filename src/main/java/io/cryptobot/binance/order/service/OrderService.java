@@ -2,7 +2,10 @@ package io.cryptobot.binance.order.service;
 
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.model.Order;
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.session.model.TradeOrder;
+
+import java.math.BigDecimal;
 
 public interface OrderService {
     void updateOrder(Order updatedOrder);
@@ -10,6 +13,8 @@ public interface OrderService {
     Order createOrder(String symbol, Double amount, OrderSide side, Boolean hedgeMode);
 
     Order closeOrder(Order order);
+
+    Order closeOrder(BigDecimal count, OrderSide closingSide, String symbol, TradingDirection direction);
 
     Order closeOrder(TradeOrder order);
 

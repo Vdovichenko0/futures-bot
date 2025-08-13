@@ -8,6 +8,7 @@ import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -335,5 +336,228 @@ class TradeOrderTest {
         assertEquals(relatedHedgeId, tradeOrder.getRelatedHedgeId());
         assertEquals(SessionMode.HEDGING, tradeOrder.getModeAtCreation());
         assertEquals("close_trailing", tradeOrder.getCreationContext());
+    }
+
+    @Test
+    @DisplayName("Should create averaging order with correct weighted average price")
+    void shouldCreateAveragingOrderWithCorrectWeightedAveragePrice() {
+        // Given
+        Order averagingOrder = Order.builder()
+                .orderId(2001L)
+                .symbol("BTCUSDT")
+                .side(OrderSide.BUY)
+                .orderType("MARKET")
+                .quantity(new BigDecimal("0.5"))
+                .averagePrice(new BigDecimal("48000")) // Усреднение по 48000
+                .commission(new BigDecimal("2.0"))
+                .commissionAsset("USDT")
+                .orderStatus(OrderStatus.FILLED)
+                .tradeTime(System.currentTimeMillis())
+                .build();
+
+        TradeOrder parentOrder = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(new BigDecimal("1.0"))
+                .price(new BigDecimal("50000")) // Основной ордер по 50000
+                .build();
+
+        TradePlan plan = TradePlan.builder()
+                .leverage(10)
+                .build();
+
+        TradeOrder averagingTradeOrder = new TradeOrder();
+
+        // When
+        averagingTradeOrder.onCreateAverage(
+                averagingOrder,
+                parentOrder,
+                BigDecimal.ZERO,
+                SessionMode.SCALPING,
+                "test averaging",
+                plan,
+                TradingDirection.LONG,
+                OrderPurpose.AVERAGING_OPEN
+        );
+
+        // Then
+        assertEquals(2001L, averagingTradeOrder.getOrderId());
+        assertEquals(TradingDirection.LONG, averagingTradeOrder.getDirection());
+        assertEquals(OrderPurpose.AVERAGING_OPEN, averagingTradeOrder.getPurpose());
+        assertEquals(1001L, averagingTradeOrder.getParentOrderId());
+        assertNull(averagingTradeOrder.getRelatedHedgeId());
+
+        // Проверяем средневзвешенную цену: (1.0 * 50000 + 0.5 * 48000) / (1.0 + 0.5) = 49333.33...
+        BigDecimal expectedPrice = new BigDecimal("49333.33333333");
+        assertEquals(expectedPrice, averagingTradeOrder.getPrice());
+        
+        // Проверяем общее количество (базовый + новый)
+        assertEquals(new BigDecimal("1.5"), averagingTradeOrder.getCount());
+
+        // Проверяем что родительский ордер помечен как имеющий усреднение
+        assertTrue(parentOrder.getHaveAveraging());
+        assertEquals(2001L, parentOrder.getIdAveragingOrder());
+    }
+
+    @Test
+    @DisplayName("Should create averaging order with correct weighted average price for SHORT")
+    void shouldCreateAveragingOrderWithCorrectWeightedAveragePriceForShort() {
+        // Given
+        Order averagingOrder = Order.builder()
+                .orderId(2002L)
+                .symbol("BTCUSDT")
+                .side(OrderSide.SELL)
+                .orderType("MARKET")
+                .quantity(new BigDecimal("0.8"))
+                .averagePrice(new BigDecimal("52000")) // Усреднение по 52000
+                .commission(new BigDecimal("3.0"))
+                .commissionAsset("USDT")
+                .orderStatus(OrderStatus.FILLED)
+                .tradeTime(System.currentTimeMillis())
+                .build();
+
+        TradeOrder parentOrder = TradeOrder.builder()
+                .orderId(1002L)
+                .direction(TradingDirection.SHORT)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(new BigDecimal("2.0"))
+                .price(new BigDecimal("50000")) // Основной ордер по 50000
+                .build();
+
+        TradePlan plan = TradePlan.builder()
+                .leverage(10)
+                .build();
+
+        TradeOrder averagingTradeOrder = new TradeOrder();
+
+        // When
+        averagingTradeOrder.onCreateAverage(
+                averagingOrder,
+                parentOrder,
+                BigDecimal.ZERO,
+                SessionMode.SCALPING,
+                "test averaging short",
+                plan,
+                TradingDirection.SHORT,
+                OrderPurpose.AVERAGING_OPEN
+        );
+
+        // Then
+        assertEquals(2002L, averagingTradeOrder.getOrderId());
+        assertEquals(TradingDirection.SHORT, averagingTradeOrder.getDirection());
+        assertEquals(OrderPurpose.AVERAGING_OPEN, averagingTradeOrder.getPurpose());
+        assertEquals(1002L, averagingTradeOrder.getParentOrderId());
+
+        // Проверяем средневзвешенную цену: (2.0 * 50000 + 0.8 * 52000) / (2.0 + 0.8) = 50571.43...
+        BigDecimal expectedPrice = new BigDecimal("50571.42857143");
+        assertEquals(expectedPrice, averagingTradeOrder.getPrice());
+        
+        // Проверяем общее количество (базовый + новый)
+        assertEquals(new BigDecimal("2.8"), averagingTradeOrder.getCount());
+
+        // Проверяем что родительский ордер помечен как имеющий усреднение
+        assertTrue(parentOrder.getHaveAveraging());
+        assertEquals(2002L, parentOrder.getIdAveragingOrder());
+    }
+
+    @Test
+    @DisplayName("Should handle averaging order with null parent order")
+    void shouldHandleAveragingOrderWithNullParentOrder() {
+        // Given
+        Order averagingOrder = Order.builder()
+                .orderId(2003L)
+                .symbol("BTCUSDT")
+                .side(OrderSide.BUY)
+                .orderType("MARKET")
+                .quantity(new BigDecimal("0.5"))
+                .averagePrice(new BigDecimal("48000"))
+                .commission(new BigDecimal("2.0"))
+                .commissionAsset("USDT")
+                .orderStatus(OrderStatus.FILLED)
+                .tradeTime(System.currentTimeMillis())
+                .build();
+
+        TradePlan plan = TradePlan.builder()
+                .leverage(10)
+                .build();
+
+        TradeOrder averagingTradeOrder = new TradeOrder();
+
+        // When
+        averagingTradeOrder.onCreateAverage(
+                averagingOrder,
+                null, // null parent order
+                BigDecimal.ZERO,
+                SessionMode.SCALPING,
+                "test averaging no parent",
+                plan,
+                TradingDirection.LONG,
+                OrderPurpose.AVERAGING_OPEN
+        );
+
+        // Then
+        assertEquals(2003L, averagingTradeOrder.getOrderId());
+        assertEquals(TradingDirection.LONG, averagingTradeOrder.getDirection());
+        assertEquals(OrderPurpose.AVERAGING_OPEN, averagingTradeOrder.getPurpose());
+        assertEquals(new BigDecimal("0.5"), averagingTradeOrder.getCount());
+        assertNull(averagingTradeOrder.getParentOrderId());
+
+        // При null parent order цена должна быть равна цене усреднения
+        assertEquals(new BigDecimal("48000.00000000"), averagingTradeOrder.getPrice());
+    }
+
+    @Test
+    @DisplayName("Should handle averaging order with zero quantities")
+    void shouldHandleAveragingOrderWithZeroQuantities() {
+        // Given
+        Order averagingOrder = Order.builder()
+                .orderId(2004L)
+                .symbol("BTCUSDT")
+                .side(OrderSide.BUY)
+                .orderType("MARKET")
+                .quantity(BigDecimal.ZERO) // Нулевое количество
+                .averagePrice(new BigDecimal("48000"))
+                .commission(new BigDecimal("2.0"))
+                .commissionAsset("USDT")
+                .orderStatus(OrderStatus.FILLED)
+                .tradeTime(System.currentTimeMillis())
+                .build();
+
+        TradeOrder parentOrder = TradeOrder.builder()
+                .orderId(1004L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(BigDecimal.ZERO) // Нулевое количество
+                .price(new BigDecimal("50000"))
+                .build();
+
+        TradePlan plan = TradePlan.builder()
+                .leverage(10)
+                .build();
+
+        TradeOrder averagingTradeOrder = new TradeOrder();
+
+        // When
+        averagingTradeOrder.onCreateAverage(
+                averagingOrder,
+                parentOrder,
+                BigDecimal.ZERO,
+                SessionMode.SCALPING,
+                "test averaging zero quantities",
+                plan,
+                TradingDirection.LONG,
+                OrderPurpose.AVERAGING_OPEN
+        );
+
+        // Then
+        assertEquals(2004L, averagingTradeOrder.getOrderId());
+        assertEquals(TradingDirection.LONG, averagingTradeOrder.getDirection());
+        assertEquals(OrderPurpose.AVERAGING_OPEN, averagingTradeOrder.getPurpose());
+        assertEquals(BigDecimal.ZERO, averagingTradeOrder.getCount());
+        assertEquals(1004L, averagingTradeOrder.getParentOrderId());
+
+        // При нулевых количествах цена должна быть равна цене усреднения (fallback)
+        assertEquals(new BigDecimal("48000"), averagingTradeOrder.getPrice());
     }
 } 

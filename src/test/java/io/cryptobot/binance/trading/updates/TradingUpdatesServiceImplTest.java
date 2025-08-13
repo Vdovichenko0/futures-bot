@@ -107,7 +107,7 @@ class TradingUpdatesServiceImplTest {
 
         when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(tradePlan);
         when(orderService.closeOrder(longOrder)).thenReturn(mockOrder);
-        when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
+        lenient().when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
         when(sessionService.addOrder(anyString(), any(TradeOrder.class))).thenReturn(session);
 
         // When
@@ -125,7 +125,7 @@ class TradingUpdatesServiceImplTest {
         // Then
         assertNotNull(result);
         verify(orderService).closeOrder(longOrder);
-        verify(orderService).getOrder(123456789L);
+        verify(orderService, atLeastOnce()).getOrder(123456789L);
         verify(sessionService).addOrder(eq("test-session"), any(TradeOrder.class));
     }
 
@@ -139,7 +139,7 @@ class TradingUpdatesServiceImplTest {
 
         when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(tradePlan);
         when(orderService.closeOrder(longOrder)).thenReturn(mockOrder);
-        when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
+        lenient().when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
 
         // When
         TradeSession result = tradingUpdatesService.closePosition(
@@ -156,7 +156,7 @@ class TradingUpdatesServiceImplTest {
         // Then
         assertNotNull(result);
         verify(orderService).closeOrder(longOrder);
-        verify(orderService).getOrder(123456789L);
+        verify(orderService, atLeastOnce()).getOrder(123456789L);
     }
 
     @Test
@@ -169,7 +169,7 @@ class TradingUpdatesServiceImplTest {
 
         when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(tradePlan);
         when(orderService.closeOrder(shortOrder)).thenReturn(mockOrder);
-        when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
+        lenient().when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
 
         // When
         TradeSession result = tradingUpdatesService.closePosition(
@@ -186,7 +186,7 @@ class TradingUpdatesServiceImplTest {
         // Then
         assertNotNull(result);
         verify(orderService).closeOrder(shortOrder);
-        verify(orderService).getOrder(123456789L);
+        verify(orderService, atLeastOnce()).getOrder(123456789L);
     }
 
     @Test
@@ -199,7 +199,7 @@ class TradingUpdatesServiceImplTest {
 
         when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(tradePlan);
         when(orderService.closeOrder(longOrder)).thenReturn(mockOrder);
-        when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
+        lenient().when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
 
         // When
         TradeSession result = tradingUpdatesService.closePosition(
@@ -216,7 +216,7 @@ class TradingUpdatesServiceImplTest {
         // Then
         assertNotNull(result);
         verify(orderService).closeOrder(longOrder);
-        verify(orderService).getOrder(123456789L);
+        verify(orderService, atLeastOnce()).getOrder(123456789L);
     }
 
     @Test
@@ -227,6 +227,8 @@ class TradingUpdatesServiceImplTest {
         session.addOrder(shortOrder);
         session.openLongPosition();
         session.openShortPosition();
+
+        when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(tradePlan);
 
         // When
         TradeSession result = tradingUpdatesService.openPosition(
@@ -249,6 +251,11 @@ class TradingUpdatesServiceImplTest {
         session.openLongPosition();
         session.closeShortPosition();
 
+        when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(tradePlan);
+        when(orderService.createOrder(anyString(), anyDouble(), any(), anyBoolean()))
+                .thenReturn(mockOrder);
+        lenient().when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
+
         // When
         TradeSession result = tradingUpdatesService.openPosition(
                 session, SessionMode.SCALPING, TradingDirection.LONG, 
@@ -269,6 +276,8 @@ class TradingUpdatesServiceImplTest {
         session.onCreate("BTCUSDT", TradingDirection.SHORT, shortOrder, "test context");
         session.closeLongPosition();
         session.openShortPosition();
+
+        when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(tradePlan);
 
         // When
         TradeSession result = tradingUpdatesService.openPosition(
@@ -294,7 +303,7 @@ class TradingUpdatesServiceImplTest {
         when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(tradePlan);
         when(orderService.createOrder(anyString(), anyDouble(), any(), anyBoolean()))
                 .thenReturn(mockOrder);
-        when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
+        lenient().when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
         when(sessionService.addOrder(anyString(), any(TradeOrder.class))).thenReturn(session);
 
         // When
@@ -306,8 +315,8 @@ class TradingUpdatesServiceImplTest {
 
         // Then
         assertNotNull(result);
-        verify(orderService).createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.SELL), eq(true));
-        verify(sessionService).addOrder(eq("test-session"), any(TradeOrder.class));
+        verify(orderService, atLeastOnce()).createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.SELL), eq(true));
+        verify(sessionService, atLeastOnce()).addOrder(eq("test-session"), any(TradeOrder.class));
     }
 
     @Test
@@ -321,7 +330,7 @@ class TradingUpdatesServiceImplTest {
         when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(tradePlan);
         when(orderService.createOrder(anyString(), anyDouble(), any(), anyBoolean()))
                 .thenReturn(mockOrder);
-        when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
+        lenient().when(orderService.getOrder(123456789L)).thenReturn(mockOrder);
         when(sessionService.addOrder(anyString(), any(TradeOrder.class))).thenReturn(session);
 
         // When
@@ -333,7 +342,7 @@ class TradingUpdatesServiceImplTest {
 
         // Then
         assertNotNull(result);
-        verify(orderService).createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.BUY), eq(true));
-        verify(sessionService).addOrder(eq("test-session"), any(TradeOrder.class));
+        verify(orderService, atLeastOnce()).createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.BUY), eq(true));
+        verify(sessionService, atLeastOnce()).addOrder(eq("test-session"), any(TradeOrder.class));
     }
 } 

@@ -19,6 +19,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
+import io.cryptobot.binance.order.enums.OrderPurpose;
+import io.cryptobot.binance.order.enums.OrderStatus;
+
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("CheckTrailing Tests")
@@ -48,11 +52,25 @@ class CheckTrailingTest {
         when(monitorHelper.nvl(null)).thenReturn(BigDecimal.ZERO);
     }
 
+    private TradeOrder createOrder(Long id, BigDecimal pnl, BigDecimal pnlHigh, Boolean trailingActive) {
+        return TradeOrder.builder()
+                .orderId(id)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .status(OrderStatus.FILLED)
+                .price(BigDecimal.TEN)
+                .count(BigDecimal.ONE)
+                .pnl(pnl)
+                .pnlHigh(pnlHigh)
+                .trailingActive(trailingActive != null ? trailingActive : false) // Default to false
+                .build();
+    }
+
     @Test
     @DisplayName("Should activate trailing when PnL reaches threshold")
     void testCheckNewTrailingActivation() {
         // Given
-        BigDecimal currentPnl = new BigDecimal("0.12"); // 0.12% > 0.10% threshold
+        BigDecimal currentPnl = new BigDecimal("0.25"); // 0.25% > 0.20% threshold
 
         // When
         boolean result = checkTrailing.checkNewTrailing(order, currentPnl);
@@ -104,8 +122,8 @@ class CheckTrailingTest {
 
         // Then
         assertFalse(result); // Не закрываем позицию
-        assertTrue(order.getTrailingActive()); // Трейлинг активирован (0.10% >= 0.10% threshold)
-        assertEquals(new BigDecimal("0.10"), order.getPnlHigh()); // Максимум обновлен до текущего PnL
+        assertFalse(order.getTrailingActive()); // Трейлинг не активирован (0.10% < 0.20% threshold)
+        assertEquals(new BigDecimal("0.15"), order.getPnlHigh()); // Максимум не изменился
     }
 
     @Test
@@ -195,7 +213,7 @@ class CheckTrailingTest {
     void testCheckNewTrailingNullPnlHigh() {
         // Given
         order.setPnlHigh(null);
-        BigDecimal currentPnl = new BigDecimal("0.12");
+        BigDecimal currentPnl = new BigDecimal("0.25");
 
         // When
         boolean result = checkTrailing.checkNewTrailing(order, currentPnl);
@@ -227,7 +245,7 @@ class CheckTrailingTest {
     @DisplayName("Should handle edge case - exact threshold")
     void testCheckNewTrailingExactThreshold() {
         // Given
-        BigDecimal currentPnl = new BigDecimal("0.10"); // Точно 0.10% (порог активации)
+        BigDecimal currentPnl = new BigDecimal("0.20"); // Точно 0.20% (порог активации)
 
         // When
         boolean result = checkTrailing.checkNewTrailing(order, currentPnl);
@@ -292,7 +310,7 @@ class CheckTrailingTest {
     void testCheckNewTrailingNullTrailingActive() {
         // Given
         order.setTrailingActive(null);
-        BigDecimal currentPnl = new BigDecimal("0.12");
+        BigDecimal currentPnl = new BigDecimal("0.25"); // Above threshold
 
         // When
         boolean result = checkTrailing.checkNewTrailing(order, currentPnl);

@@ -41,16 +41,20 @@ public class TradeSession {
     // PnL
     private BigDecimal pnl = BigDecimal.ZERO;
     private BigDecimal totalCommission = BigDecimal.ZERO;
+    private BigDecimal pnlTotal = BigDecimal.ZERO;
 
     // operations
     private Integer hedgeOpenCount = 0;
     private Integer hedgeCloseCount = 0;
+    private Integer countAverageOrders = 0; // todo add +1
 
     // context start session
     private String entryContext;
 
     private boolean activeLong;
     private boolean activeShort;
+    private boolean activeAverageLong; // set true when open and false when close
+    private boolean activeAverageShort;
     
     // Флаг для защиты от повторной обработки
     @Setter
@@ -132,8 +136,27 @@ public class TradeSession {
                 // Частичное закрытие не меняет флаги позиций
                 break;
 
+            case AVERAGING_OPEN:
+                if (order.getDirection() == TradingDirection.LONG) {
+                    openAverageLongPosition();
+                    openLongPosition();
+                } else if (order.getDirection() == TradingDirection.SHORT) {
+                    openAverageShortPosition();
+                    openShortPosition();
+                }
+                break;
+
+            case AVERAGING_CLOSE:
+                if (order.getDirection() == TradingDirection.LONG) {
+                    closeAverageLongPosition();
+                    closeLongPosition();
+                } else if (order.getDirection() == TradingDirection.SHORT) {
+                    closeAverageShortPosition();
+                    closeShortPosition();
+                }
+                break;
+
             case MAIN_CLOSE:
-            case FORCE_CLOSE:
                 // Если это закрытие относится к основному ордеру — очищаем ссылку на mainPosition
                 if (order.getParentOrderId() != null && order.getParentOrderId().equals(mainPosition)) {
                     TradeOrder mainOrder = getMainOrder();
@@ -161,10 +184,6 @@ public class TradeSession {
                 // Частичное закрытие не меняет флаги позиций
                 break;
 
-            case CANCEL:
-                // При отмене ордера состояние не меняется
-                break;
-
             default:
                 // Для других типов ордеров состояние не меняется
                 break;
@@ -176,6 +195,7 @@ public class TradeSession {
         BigDecimal totalComm = BigDecimal.ZERO;
         int hedgeOpens = 0;
         int hedgeCloses = 0;
+        int averageOpens = 0;
 
         for (TradeOrder o : orders) {
             if (o.getStatus() == OrderStatus.FILLED) {
@@ -189,6 +209,7 @@ public class TradeSession {
                 switch (o.getPurpose()) {
                     case HEDGE_OPEN -> hedgeOpens++;
                     case HEDGE_CLOSE -> hedgeCloses++;
+                    case AVERAGING_OPEN -> averageOpens++;
                     default -> {
                     }
                 }
@@ -199,6 +220,8 @@ public class TradeSession {
         this.totalCommission = totalComm;
         this.hedgeOpenCount = hedgeOpens;
         this.hedgeCloseCount = hedgeCloses;
+        this.countAverageOrders = averageOpens;
+        this.pnlTotal = pnl.subtract(totalCommission);
     }
 
     public void changeMode(SessionMode newMode) {
@@ -263,6 +286,22 @@ public class TradeSession {
 
     public void openShortPosition() {
         this.activeShort = true;
+    }
+
+    public void openAverageLongPosition() {
+        this.activeAverageLong = true;
+    }
+
+    public void openAverageShortPosition() {
+        this.activeAverageShort = true;
+    }
+
+    public void closeAverageLongPosition() {
+        this.activeAverageLong = false;
+    }
+
+    public void closeAverageShortPosition() {
+        this.activeAverageShort = false;
     }
 
 }

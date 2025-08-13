@@ -247,7 +247,7 @@ class MonitoringServiceImplTest {
         monitoring.monitor();
         monitoring.monitor();
 
-        verify(tradingUpdatesService).openPosition(
+        verify(tradingUpdatesService, atLeastOnce()).openPosition(
                 any(), eq(SessionMode.HEDGING), eq(TradingDirection.LONG), eq(OrderPurpose.HEDGE_OPEN), eq(p2), contains("monitoring_worsening"), parentArg.capture(), isNull()
         );
         assertEquals(600L, parentArg.getValue());

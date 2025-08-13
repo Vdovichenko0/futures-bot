@@ -8,6 +8,7 @@ import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
 import io.cryptobot.binance.order.mapper.OrderMapper;
 import io.cryptobot.binance.order.model.Order;
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.session.model.TradeOrder;
 import io.cryptobot.configs.service.AppConfig;
 import lombok.RequiredArgsConstructor;
@@ -17,29 +18,30 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
+
 import io.cryptobot.helpers.OrderHelper;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class OrderServiceImpl implements OrderService{
+public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final ObjectMapper objectMapper;
 
-//    @Scheduled(initialDelay = 30_000)
+    //    @Scheduled(initialDelay = 30_000)
     @Transactional
     public void init() {
         try {
             log.info("🚀 Starting order creation and closure test...");
-            
+
             Order order = createOrder("BTCUSDT", 0.001, OrderSide.BUY, true);
             if (order == null) {
                 log.error("❌ Failed to create order");
                 return;
             }
-            
+
             log.info("✅ Order created successfully: {}", order.getOrderId());
-            
+
             log.info("⏳ Waiting 60 seconds before closing order...");
             Thread.sleep(60_000);
 
@@ -142,12 +144,12 @@ public class OrderServiceImpl implements OrderService{
                 // если side == BUY → LONG, если SELL → SHORT
                 String positionSide = side.equals(OrderSide.BUY) ? "LONG" : "SHORT";
                 parameters.put("positionSide", positionSide);
-                
-                log.info("🔧 Opening position: symbol={}, side={}, positionSide={}, quantity={}", 
+
+                log.info("🔧 Opening position: symbol={}, side={}, positionSide={}, quantity={}",
                         symbol, side, positionSide, amount);
             } else {
                 parameters.remove("positionSide");
-                log.info("🔧 Opening position (non-hedge): symbol={}, side={}, quantity={}", 
+                log.info("🔧 Opening position (non-hedge): symbol={}, side={}, quantity={}",
                         symbol, side, amount);
             }
 
@@ -225,63 +227,111 @@ public class OrderServiceImpl implements OrderService{
 
     @Override
     @Transactional
+    public Order closeOrder(BigDecimal count, OrderSide closingSide, String symbol, TradingDirection direction) {
+        try {
+            UMFuturesClientImpl client = new UMFuturesClientImpl(
+                    AppConfig.API_KEY,
+                    AppConfig.SECRET_KEY,
+                    AppConfig.BINANCE_URL
+            );
+
+            // Если ордер исполнен, закрываем позицию
+            if (count == null || count.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("Quantity to close is zero or missing for order: {}", symbol);
+                return null;
+            }
+
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", symbol.toUpperCase());
+            params.put("side", closingSide.toString());
+            params.put("type", "MARKET");
+            params.put("quantity", count.toPlainString());
+
+            // В hedge model нужно указать positionSide точно таким же, как у исходной позиции (LONG/SHORT)
+            // TradeOrder.direction уже в правильном формате (LONG/SHORT)
+            String positionSide = direction.toString();
+            params.put("positionSide", positionSide);
+
+            log.info("🔧 Closing position: symbol={}, side={}, positionSide={}, quantity={}", symbol, closingSide, positionSide, count);
+
+            String response = client.account().newOrder(params);
+            log.info("Close order response: {}", response);
+
+            JsonNode node = objectMapper.readTree(response);
+            Order closed = OrderMapper.fromRest(node);
+            orderRepository.save(closed);
+            return closed;
+
+        } catch (Exception e) {
+            log.error("Failed to close order: {}", symbol, e);
+            // Обработка специфической ошибки Binance -2022 (ReduceOnly Order is rejected)
+            if (e.getMessage() != null && e.getMessage().contains("-2022")) {
+                log.warn("⚠️ Position already closed or doesn't exist (error -2022) for order: {}", symbol);
+                return null;
+            }
+            return null;
+        }
+    }
+
+    @Override
+    @Transactional
     public Order closeOrder(TradeOrder order) {
         try {
-        log.info("Closing order/position: {}", order);
+            log.info("Closing order/position: {}", order);
 
-        UMFuturesClientImpl client = new UMFuturesClientImpl(
-                AppConfig.API_KEY,
-                AppConfig.SECRET_KEY,
-                AppConfig.BINANCE_URL
-        );
+            UMFuturesClientImpl client = new UMFuturesClientImpl(
+                    AppConfig.API_KEY,
+                    AppConfig.SECRET_KEY,
+                    AppConfig.BINANCE_URL
+            );
 
-        // Если ордер исполнен, закрываем позицию
-        BigDecimal qtyToClose = order.getCount();
-        if (qtyToClose == null || qtyToClose.compareTo(BigDecimal.ZERO) <= 0) {
-            log.warn("Quantity to close is zero or missing for order: {}", order);
+            // Если ордер исполнен, закрываем позицию
+            BigDecimal qtyToClose = order.getCount();
+            if (qtyToClose == null || qtyToClose.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("Quantity to close is zero or missing for order: {}", order);
+                return null;
+            }
+
+            // Определяем сторону закрытия: если была BUY (лонг) — закрываем SELL, если SELL (шорт) — BUY
+            OrderSide closingSide = order.getSide().equals(OrderSide.BUY) ? OrderSide.SELL : OrderSide.BUY;
+
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", order.getSymbol().toUpperCase());
+            params.put("side", closingSide.toString());
+            params.put("type", "MARKET");
+            params.put("quantity", qtyToClose.toPlainString());
+
+            // В hedge model нужно указать positionSide точно таким же, как у исходной позиции (LONG/SHORT)
+            // TradeOrder.direction уже в правильном формате (LONG/SHORT)
+            String positionSide = order.getDirection().toString();
+            params.put("positionSide", positionSide);
+
+            log.info("🔧 Closing position: symbol={}, side={}, positionSide={}, quantity={}",
+                    order.getSymbol(), closingSide, positionSide, qtyToClose);
+
+
+            String response = client.account().newOrder(params);
+            log.info("Close order response: {}", response);
+
+            JsonNode node = objectMapper.readTree(response);
+            Order closed = OrderMapper.fromRest(node);
+            orderRepository.save(closed);
+            log.info("Mapped and saved closed order: {}", closed);
+            return closed;
+
+        } catch (Exception e) {
+            log.error("Failed to close order: {}", order, e);
+
+            // Обработка специфической ошибки Binance -2022 (ReduceOnly Order is rejected)
+            if (e.getMessage() != null && e.getMessage().contains("-2022")) {
+                log.warn("⚠️ Position already closed or doesn't exist (error -2022) for order: {}", order.getOrderId());
+                // Возвращаем null чтобы TradingUpdatesService мог обработать это
+                return null;
+            }
+
             return null;
         }
-
-        // Определяем сторону закрытия: если была BUY (лонг) — закрываем SELL, если SELL (шорт) — BUY
-        OrderSide closingSide = order.getSide().equals(OrderSide.BUY) ? OrderSide.SELL : OrderSide.BUY;
-
-        LinkedHashMap<String, Object> params = new LinkedHashMap<>();
-        params.put("symbol", order.getSymbol().toUpperCase());
-        params.put("side", closingSide.toString());
-        params.put("type", "MARKET");
-        params.put("quantity", qtyToClose.toPlainString());
-
-        // В hedge model нужно указать positionSide точно таким же, как у исходной позиции (LONG/SHORT)
-        // TradeOrder.direction уже в правильном формате (LONG/SHORT)
-        String positionSide = order.getDirection().toString();
-        params.put("positionSide", positionSide);
-        
-        log.info("🔧 Closing position: symbol={}, side={}, positionSide={}, quantity={}", 
-                order.getSymbol(), closingSide, positionSide, qtyToClose);
-
-
-        String response = client.account().newOrder(params);
-        log.info("Close order response: {}", response);
-
-        JsonNode node = objectMapper.readTree(response);
-        Order closed = OrderMapper.fromRest(node);
-        orderRepository.save(closed);
-        log.info("Mapped and saved closed order: {}", closed);
-        return closed;
-
-    } catch (Exception e) {
-        log.error("Failed to close order: {}", order, e);
-        
-        // Обработка специфической ошибки Binance -2022 (ReduceOnly Order is rejected)
-        if (e.getMessage() != null && e.getMessage().contains("-2022")) {
-            log.warn("⚠️ Position already closed or doesn't exist (error -2022) for order: {}", order.getOrderId());
-            // Возвращаем null чтобы TradingUpdatesService мог обработать это
-            return null;
-        }
-        
-        return null;
     }
-}
 
     @Override
     @Transactional

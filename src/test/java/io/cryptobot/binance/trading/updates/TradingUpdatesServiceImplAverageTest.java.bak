@@ -1,0 +1,424 @@
+package io.cryptobot.binance.trading.updates;
+
+import io.cryptobot.binance.order.enums.OrderPurpose;
+import io.cryptobot.binance.order.enums.OrderSide;
+import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.model.Order;
+import io.cryptobot.binance.order.service.OrderService;
+import io.cryptobot.binance.trade.session.enums.SessionMode;
+import io.cryptobot.binance.trade.session.enums.TradingDirection;
+import io.cryptobot.binance.trade.session.model.TradeOrder;
+import io.cryptobot.binance.trade.session.model.TradeSession;
+import io.cryptobot.binance.trade.session.service.TradeSessionService;
+import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
+import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
+import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.*;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+@DisplayName("TradingUpdatesServiceImpl Average Close Tests")
+class TradingUpdatesServiceImplAverageTest {
+
+    @Mock private TradePlanGetService tradePlanGetService;
+    @Mock private TradeSessionService sessionService;
+    @Mock private OrderService orderService;
+
+    @InjectMocks private TradingUpdatesServiceImpl service;
+
+    private TradeSession session;
+    private TradePlan plan;
+
+    @BeforeEach
+    void setUp() {
+        session = new TradeSession();
+        session.setId("s1");
+
+        plan = TradePlan.builder()
+                .symbol("BTCUSDT")
+                .amountPerTrade(new BigDecimal("1000"))
+                .sizes(SizeModel.builder().lotSize(new BigDecimal("0.001")).build())
+                .build();
+    }
+
+    private TradeOrder order(long id, OrderPurpose purpose, TradingDirection dir, BigDecimal price, BigDecimal qty, Long parentId) {
+        return TradeOrder.builder()
+                .orderId(id)
+                .purpose(purpose)
+                .direction(dir)
+                .status(io.cryptobot.binance.order.enums.OrderStatus.FILLED)
+                .price(price)
+                .count(qty)
+                .side(dir == TradingDirection.LONG ? OrderSide.BUY : OrderSide.SELL)
+                .symbol("BTCUSDT")
+                .orderTime(LocalDateTime.now())
+                .parentOrderId(parentId)
+                .build();
+    }
+
+    private Order filledCloseOrder(long id, BigDecimal avgPrice) {
+        Order o = new Order();
+        o.setOrderId(id);
+        o.setOrderStatus(OrderStatus.FILLED);
+        o.setAveragePrice(avgPrice);
+        o.setQuantity(new BigDecimal("1.8")); // Set quantity to avoid NPE in TradeOrder.onCreate
+        return o;
+    }
+
+    @Test
+    @DisplayName("closeAveragePosition LONG: sums qty, uses SELL, weighted entry, positive pnl")
+    void testCloseAverageLong() {
+        // main LONG 1.0 @ 10; avg LONG 0.8 @ 9
+        TradeOrder main = order(100L, OrderPurpose.MAIN_OPEN, TradingDirection.LONG, new BigDecimal("10"), new BigDecimal("1.0"), null);
+        TradeOrder avg = order(200L, OrderPurpose.AVERAGING_OPEN, TradingDirection.LONG, new BigDecimal("9"), new BigDecimal("0.8"), 100L);
+        session.onCreate("BTCUSDT", TradingDirection.LONG, main, "ctx");
+        session.addOrder(avg);
+
+        BigDecimal total = new BigDecimal("1.8");
+        // close price 11 -> profit expected
+        Order closeSubmitted = filledCloseOrder(9000L, new BigDecimal("11"));
+        closeSubmitted.setQuantity(total); // Set correct quantity for this test
+        when(orderService.closeOrder(eq(total), eq(OrderSide.SELL), eq("BTCUSDT"), eq(TradingDirection.LONG)))
+                .thenReturn(closeSubmitted);
+        when(orderService.getOrder(9000L)).thenReturn(closeSubmitted);
+
+        TradeSession result = service.closeAveragePosition(
+                session, avg.getOrderId(), main.getOrderId(), SessionMode.SCALPING,
+                OrderPurpose.AVERAGING_CLOSE, new BigDecimal("11"), "avg_close", TradingDirection.LONG);
+
+        assertNotNull(result);
+        verify(orderService).closeOrder(eq(total), eq(OrderSide.SELL), eq("BTCUSDT"), eq(TradingDirection.LONG));
+        // Weighted entry = (1.0*10 + 0.8*9)/1.8 = (10 + 7.2)/1.8 = 9.55555556
+        BigDecimal weightedEntry = new BigDecimal("17.2").divide(new BigDecimal("1.8"), 8, java.math.RoundingMode.HALF_UP);
+        BigDecimal pnlFraction = new BigDecimal("11").subtract(weightedEntry).divide(weightedEntry, 8, java.math.RoundingMode.HALF_UP);
+        BigDecimal expectedPnl = pnlFraction.multiply(total).multiply(weightedEntry).setScale(8, java.math.RoundingMode.HALF_UP);
+
+        ArgumentCaptor<TradeOrder> captor = ArgumentCaptor.forClass(TradeOrder.class);
+        verify(sessionService).addOrder(eq("s1"), captor.capture());
+        TradeOrder closed = captor.getValue();
+        assertEquals(OrderPurpose.AVERAGING_CLOSE, closed.getPurpose());
+        assertEquals(TradingDirection.LONG, closed.getDirection());
+        assertEquals(200L, closed.getParentOrderId()); // parent set to average id per impl
+        assertEquals(0, expectedPnl.compareTo(closed.getPnl()));
+    }
+
+    @Test
+    @DisplayName("closeAveragePosition SHORT: sums qty, uses BUY, weighted entry, positive pnl")
+    void testCloseAverageShort() {
+        // main SHORT 2.0 @ 20; avg SHORT 1.2 @ 21; close at 19
+        TradeOrder main = order(300L, OrderPurpose.MAIN_OPEN, TradingDirection.SHORT, new BigDecimal("20"), new BigDecimal("2.0"), null);
+        TradeOrder avg = order(400L, OrderPurpose.AVERAGING_OPEN, TradingDirection.SHORT, new BigDecimal("21"), new BigDecimal("1.2"), 300L);
+        session.onCreate("BTCUSDT", TradingDirection.SHORT, main, "ctx");
+        session.addOrder(avg);
+
+        BigDecimal total = new BigDecimal("3.2");
+        Order closeSubmitted = filledCloseOrder(9001L, new BigDecimal("19"));
+        closeSubmitted.setQuantity(total); // Set correct quantity for this test
+        when(orderService.closeOrder(eq(total), eq(OrderSide.BUY), eq("BTCUSDT"), eq(TradingDirection.SHORT)))
+                .thenReturn(closeSubmitted);
+        when(orderService.getOrder(9001L)).thenReturn(closeSubmitted);
+
+        TradeSession result = service.closeAveragePosition(
+                session, avg.getOrderId(), main.getOrderId(), SessionMode.SCALPING,
+                OrderPurpose.AVERAGING_CLOSE, new BigDecimal("19"), "avg_close", TradingDirection.SHORT);
+
+        assertNotNull(result);
+        verify(orderService).closeOrder(eq(total), eq(OrderSide.BUY), eq("BTCUSDT"), eq(TradingDirection.SHORT));
+        // Weighted entry = (2.0*20 + 1.2*21)/3.2 = (40 + 25.2)/3.2 = 20.375
+        BigDecimal weightedEntry = new BigDecimal("65.2").divide(new BigDecimal("3.2"), 8, java.math.RoundingMode.HALF_UP);
+        BigDecimal pnlFraction = weightedEntry.subtract(new BigDecimal("19")).divide(weightedEntry, 8, java.math.RoundingMode.HALF_UP);
+        BigDecimal expectedPnl = pnlFraction.multiply(total).multiply(weightedEntry).setScale(8, java.math.RoundingMode.HALF_UP);
+
+        ArgumentCaptor<TradeOrder> captor = ArgumentCaptor.forClass(TradeOrder.class);
+        verify(sessionService).addOrder(eq("s1"), captor.capture());
+        TradeOrder closed = captor.getValue();
+        assertEquals(OrderPurpose.AVERAGING_CLOSE, closed.getPurpose());
+        assertEquals(TradingDirection.SHORT, closed.getDirection());
+        assertEquals(400L, closed.getParentOrderId());
+        assertEquals(0, expectedPnl.compareTo(closed.getPnl()));
+    }
+
+    @Test
+    @DisplayName("Should open averaging position successfully for LONG")
+    void shouldOpenAveragingPositionSuccessfullyForLong() {
+        // Given
+        TradeOrder mainOrder = TradeOrder.builder()
+                .orderId(1001L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(new BigDecimal("1.0"))
+                .price(new BigDecimal("50000"))
+                .status(OrderStatus.FILLED)
+                .build();
+
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test context");
+        session.openLongPosition();
+
+        Order mockAveragingOrder = new Order();
+        mockAveragingOrder.setOrderId(2001L);
+        mockAveragingOrder.setAveragePrice(new BigDecimal("48000"));
+        mockAveragingOrder.setQuantity(new BigDecimal("0.5"));
+        mockAveragingOrder.setOrderStatus(OrderStatus.FILLED);
+
+        when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(plan);
+        when(orderService.createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.BUY), eq(true)))
+                .thenReturn(mockAveragingOrder);
+        when(orderService.getOrder(2001L)).thenReturn(mockAveragingOrder);
+        when(sessionService.addOrder(anyString(), any(TradeOrder.class))).thenReturn(session);
+
+        // When
+        TradeSession result = service.openAveragePosition(
+                session,
+                SessionMode.SCALPING,
+                TradingDirection.LONG,
+                OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("48000"),
+                "test averaging",
+                1001L
+        );
+
+        // Then
+        assertNotNull(result);
+        verify(orderService).createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.BUY), eq(true));
+        verify(orderService).getOrder(2001L);
+        verify(sessionService).addOrder(eq("s1"), any(TradeOrder.class));
+    }
+
+    @Test
+    @DisplayName("Should open averaging position successfully for SHORT")
+    void shouldOpenAveragingPositionSuccessfullyForShort() {
+        // Given
+        TradeOrder mainOrder = TradeOrder.builder()
+                .orderId(1002L)
+                .direction(TradingDirection.SHORT)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(new BigDecimal("2.0"))
+                .price(new BigDecimal("50000"))
+                .status(OrderStatus.FILLED)
+                .build();
+
+        session.onCreate("BTCUSDT", TradingDirection.SHORT, mainOrder, "test context");
+        session.openShortPosition();
+
+        Order mockAveragingOrder = new Order();
+        mockAveragingOrder.setOrderId(2002L);
+        mockAveragingOrder.setAveragePrice(new BigDecimal("52000"));
+        mockAveragingOrder.setQuantity(new BigDecimal("0.8"));
+        mockAveragingOrder.setOrderStatus(OrderStatus.FILLED);
+
+        when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(plan);
+        when(orderService.createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.SELL), eq(true)))
+                .thenReturn(mockAveragingOrder);
+        when(orderService.getOrder(2002L)).thenReturn(mockAveragingOrder);
+        when(sessionService.addOrder(anyString(), any(TradeOrder.class))).thenReturn(session);
+
+        // When
+        TradeSession result = service.openAveragePosition(
+                session,
+                SessionMode.SCALPING,
+                TradingDirection.SHORT,
+                OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("52000"),
+                "test averaging short",
+                1002L
+        );
+
+        // Then
+        assertNotNull(result);
+        verify(orderService).createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.SELL), eq(true));
+        verify(orderService).getOrder(2002L);
+        verify(sessionService).addOrder(eq("s1"), any(TradeOrder.class));
+    }
+
+    @Test
+    @DisplayName("Should skip averaging when already active for LONG direction")
+    void shouldSkipAveragingWhenAlreadyActiveForLongDirection() {
+        // Given
+        TradeOrder mainOrder = TradeOrder.builder()
+                .orderId(1003L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(new BigDecimal("1.0"))
+                .price(new BigDecimal("50000"))
+                .status(OrderStatus.FILLED)
+                .build();
+
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test context");
+        session.openLongPosition();
+        session.openAverageLongPosition(); // Уже есть активное усреднение
+
+        // When
+        TradeSession result = service.openAveragePosition(
+                session,
+                SessionMode.SCALPING,
+                TradingDirection.LONG,
+                OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("48000"),
+                "test averaging",
+                1003L
+        );
+
+        // Then
+        assertSame(session, result);
+        verifyNoInteractions(orderService);
+        verifyNoInteractions(sessionService);
+    }
+
+    @Test
+    @DisplayName("Should skip averaging when already active for SHORT direction")
+    void shouldSkipAveragingWhenAlreadyActiveForShortDirection() {
+        // Given
+        TradeOrder mainOrder = TradeOrder.builder()
+                .orderId(1004L)
+                .direction(TradingDirection.SHORT)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(new BigDecimal("2.0"))
+                .price(new BigDecimal("50000"))
+                .status(OrderStatus.FILLED)
+                .build();
+
+        session.onCreate("BTCUSDT", TradingDirection.SHORT, mainOrder, "test context");
+        session.openShortPosition();
+        session.openAverageShortPosition(); // Уже есть активное усреднение
+
+        // When
+        TradeSession result = service.openAveragePosition(
+                session,
+                SessionMode.SCALPING,
+                TradingDirection.SHORT,
+                OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("52000"),
+                "test averaging short",
+                1004L
+        );
+
+        // Then
+        assertSame(session, result);
+        verifyNoInteractions(orderService);
+        verifyNoInteractions(sessionService);
+    }
+
+    @Test
+    @DisplayName("Should return session when parent order not found")
+    void shouldReturnSessionWhenParentOrderNotFound() {
+        // Given
+        TradeOrder mainOrder = TradeOrder.builder()
+                .orderId(1005L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(new BigDecimal("1.0"))
+                .price(new BigDecimal("50000"))
+                .status(OrderStatus.FILLED)
+                .build();
+
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test context");
+        session.openLongPosition();
+
+        // When - пытаемся найти несуществующий parent order
+        TradeSession result = service.openAveragePosition(
+                session,
+                SessionMode.SCALPING,
+                TradingDirection.LONG,
+                OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("48000"),
+                "test averaging",
+                9999L // Несуществующий ID
+        );
+
+        // Then
+        assertSame(session, result);
+        verifyNoInteractions(orderService);
+        verifyNoInteractions(sessionService);
+    }
+
+    @Test
+    @DisplayName("Should handle order creation failure")
+    void shouldHandleOrderCreationFailure() {
+        // Given
+        TradeOrder mainOrder = TradeOrder.builder()
+                .orderId(1006L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(new BigDecimal("1.0"))
+                .price(new BigDecimal("50000"))
+                .status(OrderStatus.FILLED)
+                .build();
+
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test context");
+        session.openLongPosition();
+
+        when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(plan);
+        when(orderService.createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.BUY), eq(true)))
+                .thenReturn(null); // Создание ордера не удалось
+
+        // When
+        TradeSession result = service.openAveragePosition(
+                session,
+                SessionMode.SCALPING,
+                TradingDirection.LONG,
+                OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("48000"),
+                "test averaging",
+                1006L
+        );
+
+        // Then
+        assertSame(session, result);
+        verify(orderService).createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.BUY), eq(true));
+        verifyNoMoreInteractions(orderService);
+        verifyNoInteractions(sessionService);
+    }
+
+    @Test
+    @DisplayName("Should handle order not filled in time")
+    void shouldHandleOrderNotFilledInTime() {
+        // Given
+        TradeOrder mainOrder = TradeOrder.builder()
+                .orderId(1007L)
+                .direction(TradingDirection.LONG)
+                .purpose(OrderPurpose.MAIN_OPEN)
+                .count(new BigDecimal("1.0"))
+                .price(new BigDecimal("50000"))
+                .status(OrderStatus.FILLED)
+                .build();
+
+        session.onCreate("BTCUSDT", TradingDirection.LONG, mainOrder, "test context");
+        session.openLongPosition();
+
+        Order mockAveragingOrder = new Order();
+        mockAveragingOrder.setOrderId(2007L);
+        mockAveragingOrder.setOrderStatus(OrderStatus.NEW); // Не заполнен
+
+        when(tradePlanGetService.getPlan("BTCUSDT")).thenReturn(plan);
+        when(orderService.createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.BUY), eq(true)))
+                .thenReturn(mockAveragingOrder);
+        when(orderService.getOrder(2007L)).thenReturn(mockAveragingOrder);
+
+        // When
+        TradeSession result = service.openAveragePosition(
+                session,
+                SessionMode.SCALPING,
+                TradingDirection.LONG,
+                OrderPurpose.AVERAGING_OPEN,
+                new BigDecimal("48000"),
+                "test averaging",
+                1007L
+        );
+
+        // Then
+        assertSame(session, result);
+        verify(orderService).createOrder(eq("BTCUSDT"), anyDouble(), eq(OrderSide.BUY), eq(true));
+        verify(orderService).getOrder(2007L);
+        verifyNoInteractions(sessionService);
+    }
+}

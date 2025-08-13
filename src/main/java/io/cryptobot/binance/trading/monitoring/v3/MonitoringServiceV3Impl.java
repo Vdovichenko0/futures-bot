@@ -513,11 +513,11 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
         if (extraClose.checkExtraClose(session, bestPnl, pnlWorst, best)) {
             log.info("check extra close and return true, we can close order {} {}", best.getSymbol(), best.getDirection());
             //for demo
-//            if (!session.getTradePlan().equals("LINKUSDC") && !session.getTradePlan().equals("1000SHIBUSDC")){
-//                routeClose(session, longOrder, SessionMode.HEDGING,
-//                        String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
-//            }
-            routeClose(session, longOrder, SessionMode.HEDGING, String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
+            if (!session.getTradePlan().equals("LINKUSDC") && !session.getTradePlan().equals("1000SHIBUSDC")){
+                routeClose(session, longOrder, SessionMode.HEDGING,
+                        String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
+            }
+//            routeClose(session, longOrder, SessionMode.HEDGING, String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
 //            return; need return?
         }
 

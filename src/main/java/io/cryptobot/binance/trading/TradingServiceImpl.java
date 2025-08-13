@@ -221,7 +221,7 @@ public class TradingServiceImpl implements TradingService {
         try {
             // Отправляем в процессинг сервис
             TradingDirection direction = TradingDirection.valueOf(signal);
-//            tradingProcessService.openOrder(plan, direction, BigDecimal.valueOf(currentPrice), context); //todo open
+            tradingProcessService.openOrder(plan, direction, BigDecimal.valueOf(currentPrice), context); //todo open
             log.info("✅ Signal sent to processing for {}", symbol);
         } catch (Exception e) {
             log.error("❌ Error sending signal to processing for {}: {}", symbol, e.getMessage(), e);

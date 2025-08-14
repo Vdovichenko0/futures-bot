@@ -348,11 +348,11 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
         if (delta.compareTo(SINGLE_WORSEN_DELTA_PCT) <= 0) {
             TradingDirection hedgeDir = monitorHelper.opposite(losing.getDirection());
             log.info("📉 {} [{}] FOLLOW-UP WORSEN {}: delta={}% <= {}% (baseline={}%), current PnL={}%, entry={}, current={}",
-                    session.getId(), 
+                    session.getId(),
                     session.getTradePlan(),
                     hedgeDir,
                     delta.setScale(3, RoundingMode.HALF_UP),
-                    SINGLE_WORSEN_DELTA_PCT, 
+                    SINGLE_WORSEN_DELTA_PCT,
                     fu.getBaseline().setScale(3, RoundingMode.HALF_UP),
                     pnl.setScale(3, RoundingMode.HALF_UP),
                     losing.getPrice().setScale(8, RoundingMode.HALF_UP),
@@ -511,13 +511,13 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
 
         // 2.1) check extra close
         if (extraClose.checkExtraClose(session, bestPnl, pnlWorst, best)) {
-            log.info("check extra close and return true, we can close order {} {}", best.getSymbol(), best.getDirection());
+//            log.info("check extra close and return true, we can close order {} {}", best.getSymbol(), best.getDirection());
             //for demo
-            if (!session.getTradePlan().equals("LINKUSDC") && !session.getTradePlan().equals("1000SHIBUSDC")){
-                routeClose(session, longOrder, SessionMode.HEDGING,
-                        String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
-            }
-//            routeClose(session, longOrder, SessionMode.HEDGING, String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
+//            if (!session.getTradePlan().equals("LINKUSDC") && !session.getTradePlan().equals("1000SHIBUSDC")){
+//                routeClose(session, longOrder, SessionMode.HEDGING,
+//                        String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
+//            }
+            routeClose(session, longOrder, SessionMode.HEDGING, String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
 //            return; need return?
         }
 
@@ -533,14 +533,14 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
         }
         // 2.6) ПРОВЕРКА УСРЕДНЕНИЯ ПО ЛУЧШЕЙ НОГЕ ⬅ NEW
         // Условия: есть лучшая нога, PnL <= -X%, нет активного усреднения в её направлении, нет кулдауна и т.д.
-//        if (averaging.checkOpen(session, best, bestPnl)) { // твой метод из прошлого сообщения
+        if (averaging.checkOpen(session, best, bestPnl)) { // твой метод из прошлого сообщения
 //            log.info("📊 {} [{}] TWO-POS AVERAGING CHECK {}: PnL={}% - OPENING AVERAGE",
 //                    session.getId(),
 //                    session.getTradePlan(),
 //                    worst.getDirection(),
 //                    pnlWorst.setScale(3, RoundingMode.HALF_UP));
-//            executeOpenAverage(session, worst, String.format("two_pos_averaging dir=%s pnl=%.3f%%", worst.getDirection(), pnlWorst), price);
-//        }
+            executeOpenAverage(session, worst, String.format("two_pos_averaging dir=%s pnl=%.3f%%", worst.getDirection(), pnlWorst), price);
+        }
 
     }
 

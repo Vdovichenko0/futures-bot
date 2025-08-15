@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.enums.OrderType;
 import io.cryptobot.binance.order.model.Order;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,7 +52,7 @@ class OrderMapperTest {
         assertEquals("BTCUSDT", order.getSymbol());
         assertEquals("client123", order.getClientOrderId());
         assertEquals(OrderSide.BUY, order.getSide());
-        assertEquals("LIMIT", order.getOrderType());
+        assertEquals(OrderType.LIMIT, order.getOrderType());
         assertEquals("GTC", order.getTimeInForce());
         assertEquals(new BigDecimal("0.001"), order.getQuantity());
         assertEquals(new BigDecimal("50000.00"), order.getPrice());
@@ -116,7 +117,7 @@ class OrderMapperTest {
         assertEquals("BTCUSDT", order.getSymbol());
         assertEquals("client123", order.getClientOrderId());
         assertEquals(OrderSide.SELL, order.getSide());
-        assertEquals("MARKET", order.getOrderType());
+        assertEquals(OrderType.MARKET, order.getOrderType());
         assertEquals("IOC", order.getTimeInForce());
         assertEquals(new BigDecimal("0.002"), order.getQuantity());
         assertEquals(new BigDecimal("49000.00"), order.getPrice());

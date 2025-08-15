@@ -272,8 +272,7 @@ public class TradingServiceImpl implements TradingService {
         logWriter.writeTradeLog(symbol, msg);
     }
 
-    private void sendSignalToProcessing(TradePlan plan, String signal, double currentPrice,
-                                        String trend, double volRatio, double imbalance, double lp, double sp) {
+    private void sendSignalToProcessing(TradePlan plan, String signal, double currentPrice, String trend, double volRatio, double imbalance, double lp, double sp) {
         String symbol = plan.getSymbol();
         lockMap.put(symbol, System.currentTimeMillis());
 

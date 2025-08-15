@@ -3,6 +3,7 @@ package io.cryptobot.binance.order.mapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.enums.OrderType;
 import io.cryptobot.binance.order.model.Order;
 
 import java.math.BigDecimal;
@@ -17,7 +18,7 @@ public class OrderMapper {
                     .symbol(node.path("symbol").asText(null))
                     .clientOrderId(node.path("clientOrderId").asText(null))
                     .side(parseOrderSide(node.path("side").asText(null)))
-                    .orderType(node.path("type").asText(null))
+                    .orderType(parseOrderType(node.path("type").asText(null)))
                     .timeInForce(node.path("timeInForce").asText(null))
                     .quantity(parseBigDecimal(node, "origQty"))
                     .price(parseBigDecimal(node, "price"))
@@ -48,7 +49,7 @@ public class OrderMapper {
                     .symbol(node.path("s").asText(null))
                     .clientOrderId(node.path("c").asText(null))
                     .side(parseOrderSide(node.path("S").asText(null)))
-                    .orderType(node.path("o").asText(null))
+                    .orderType(parseOrderType(node.path("o").asText(null)))
                     .timeInForce(node.path("f").asText(null))
                     .quantity(parseBigDecimal(node, "q"))
                     .price(parseBigDecimal(node, "p"))
@@ -107,6 +108,15 @@ public class OrderMapper {
         if (raw == null) return null;
         try {
             return OrderStatus.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static OrderType parseOrderType(String raw) {
+        if (raw == null) return null;
+        try {
+            return OrderType.valueOf(raw.toUpperCase());
         } catch (IllegalArgumentException e) {
             return null;
         }

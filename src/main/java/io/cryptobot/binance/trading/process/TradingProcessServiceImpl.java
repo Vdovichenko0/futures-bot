@@ -14,6 +14,7 @@ import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
 import io.cryptobot.binance.trading.monitoring.v2.MonitoringServiceV2;
 import io.cryptobot.binance.trading.monitoring.v3.MonitoringServiceV3;
+import io.cryptobot.configs.locks.TradeSessionLockRegistry;
 import io.cryptobot.market_data.ticker24h.Ticker24hService;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 @RequiredArgsConstructor
@@ -35,6 +37,7 @@ public class TradingProcessServiceImpl implements TradingProcessService{
     private final OrderService orderService;
     private final MonitoringServiceV3 monitoringService;
     private final TradePlanGetService tradePlanGetService;
+    private final TradeSessionLockRegistry lockRegistry;
     @Getter
     @Setter
     private int maxWaitMillis = 15000;
@@ -42,7 +45,6 @@ public class TradingProcessServiceImpl implements TradingProcessService{
     @Setter
     private int intervalMillis = 200;
 
-//    @Scheduled(initialDelay = 10_000)
 //    public void init(){
 //        TradePlan plan = tradePlanGetService.getPlan("LINKUSDC");
 //        openOrder(plan, TradingDirection.SHORT, BigDecimal.valueOf(21.414), "test");
@@ -51,44 +53,52 @@ public class TradingProcessServiceImpl implements TradingProcessService{
     @Override
     @Transactional
     public void openOrder(TradePlan plan, TradingDirection direction, BigDecimal currentPrice, String context) {
-        //calc count - amount/current price / lot-tick size
-        String coin = plan.getSymbol();
-        BigDecimal amount = plan.getAmountPerTrade();
-        BigDecimal lotSize = plan.getSizes().getLotSize();
-        //calc
-        BigDecimal count = amount.divide(currentPrice, 8, RoundingMode.DOWN);
+        ReentrantLock lock = lockRegistry.getLock(plan.getCurrentSessionId()); //todo session ID or like this
+        lock.lock();
+        try {
+            //calc count - amount/current price / lot-tick size
+            String coin = plan.getSymbol();
+            BigDecimal amount = plan.getAmountPerTrade();
+            BigDecimal lotSize = plan.getSizes().getLotSize();
+            //calc
+            BigDecimal count = amount.divide(currentPrice, 8, RoundingMode.DOWN);
 
-        if (count.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new RuntimeException("Invalid quantity for " + coin + count);
-        }
-        count = count.divide(lotSize, 0, RoundingMode.DOWN).multiply(lotSize);
-        log.info("count {}", count);
-        //create order
-        OrderSide side = direction.equals(TradingDirection.SHORT) ? OrderSide.SELL : OrderSide.BUY;
-        Order orderOpen = orderService.createOrder(coin, count.doubleValue(), side, true);
-        
-        //check if order was created
-        if (orderOpen == null) {
-            log.warn("Order creation failed for {}", coin);
-            return;
-        }
-        
-        //check filled
-        boolean filled = waitForFilledOrder(orderOpen, maxWaitMillis, intervalMillis);
-        if (!filled) {
-            log.warn("Order {} was not filled in time", orderOpen.getOrderId());
-            return;
-        }
-        Order filledOrder = orderService.getOrder(orderOpen.getOrderId());
+            if (count.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new RuntimeException("Invalid quantity for " + coin + count);
+            }
+            count = count.divide(lotSize, 0, RoundingMode.DOWN).multiply(lotSize);
+            log.info("count {}", count);
+            //create order
+            OrderSide side = direction.equals(TradingDirection.SHORT) ? OrderSide.SELL : OrderSide.BUY;
+//            Order orderOpen = orderService.createOrder(coin, count.doubleValue(), side, true);
+            Order orderOpen = orderService.createLimitOrElseMarket(coin, count.doubleValue(), side, plan.getSizes()); //check new
+            //check if order was created
+            if (orderOpen == null) {
+                log.warn("Order creation failed for {}", coin);
+                return;
+            }
 
-        //build trade order
-        TradeOrder mainOrder = new TradeOrder();
-        mainOrder.onCreate(filledOrder, BigDecimal.ZERO, SessionMode.SCALPING, context, plan, direction, OrderPurpose.MAIN_OPEN, null, null);
-        //create session
-        TradeSession session = sessionService.create(coin, direction, mainOrder, context);
-        //send to monitoring
-        //need to realize
-        monitoringService.addToMonitoring(session);
+            //check filled
+            boolean filled = waitForFilledOrder(orderOpen, maxWaitMillis, intervalMillis);
+            if (!filled) {
+                log.warn("Order {} was not filled in time", orderOpen.getOrderId());
+                return;
+            }
+            Order filledOrder = orderService.getOrder(orderOpen.getOrderId());
+
+            //build trade order
+            TradeOrder mainOrder = new TradeOrder();
+            mainOrder.onCreate(filledOrder, BigDecimal.ZERO, SessionMode.SCALPING, context, plan, direction, OrderPurpose.MAIN_OPEN, null, null);
+            //create session
+            TradeSession session = sessionService.create(coin, direction, mainOrder, context);
+            //send to monitoring
+            //need to realize
+            monitoringService.addToMonitoring(session);
+        } catch (Exception e){
+            log.error(e.toString());
+        } finally{
+            lock.unlock();
+        }
     }
 
     //open order + create session

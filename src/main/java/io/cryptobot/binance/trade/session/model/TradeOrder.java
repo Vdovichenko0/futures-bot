@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import io.cryptobot.binance.order.enums.OrderPurpose;
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.enums.OrderType;
 import io.cryptobot.binance.order.model.Order;
 import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.TradingDirection;
@@ -32,7 +33,7 @@ public class TradeOrder {
     // main info
     private String symbol;
     private OrderSide side; // BUY, SELL
-    private String type; // MARKET, LIMIT
+    private OrderType type; // MARKET, LIMIT
     private BigDecimal count;
     private BigDecimal price;
     private BigDecimal amount = BigDecimal.ZERO;
@@ -68,6 +69,7 @@ public class TradeOrder {
     @Setter
     private BigDecimal maxChangePnl; // максимальное улучшение от базовой точки
 
+    //create new + close order
     public void onCreate(Order order, BigDecimal pnl, SessionMode sessionMode, String context, TradePlan plan, TradingDirection direction, OrderPurpose purpose, Long parentOrderId, Long relatedHedgeId) {
         this.orderId = order.getOrderId();
         this.direction = direction;
@@ -77,7 +79,13 @@ public class TradeOrder {
         this.side = order.getSide();
         this.type = order.getOrderType();
         this.count = order.getQuantity();
-        this.price = order.getAveragePrice();
+
+        if (order.getOrderType().equals(OrderType.LIMIT)){
+            this.price = order.getPrice();
+        }else{
+            this.price = order.getAveragePrice();
+        }
+
         this.commission = order.getCommission();
         this.commissionAsset = order.getCommissionAsset();
         this.pnl = pnl;
@@ -99,9 +107,8 @@ public class TradeOrder {
         this.maxChangePnl = null;
     }
 
+    //only for create new
     public void onCreateAverage(Order order, TradeOrder parentOrder, BigDecimal pnl, SessionMode sessionMode, String context, TradePlan plan, TradingDirection direction, OrderPurpose purpose) {
-        this.side = order.getSide();
-
         // --- 0) базовые поля по фактическому fill усреднения ---
         this.orderId = order.getOrderId();
         this.direction = direction;
@@ -131,7 +138,15 @@ public class TradeOrder {
         BigDecimal baseComm  = (parentOrder != null && parentOrder.getCommission() != null) ? parentOrder.getCommission() : BigDecimal.ZERO;
 
         BigDecimal addQty    = (order.getQuantity() != null) ? order.getQuantity() : BigDecimal.ZERO;
-        BigDecimal addPrice  = (order.getAveragePrice() != null) ? order.getAveragePrice() : BigDecimal.ZERO;
+
+        BigDecimal priceLM;
+        if (order.getOrderType().equals(OrderType.LIMIT)){
+            priceLM = order.getPrice();
+        }else{
+            priceLM = order.getAveragePrice();
+        }
+
+        BigDecimal addPrice  = (priceLM != null) ? priceLM : BigDecimal.ZERO;
         BigDecimal addComm   = (order.getCommission() != null) ? order.getCommission() : BigDecimal.ZERO;
 
         // --- 3) объединённые величины ---

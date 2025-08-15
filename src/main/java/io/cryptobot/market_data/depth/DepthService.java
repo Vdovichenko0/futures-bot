@@ -1,6 +1,6 @@
 package io.cryptobot.market_data.depth;
 
-import java.util.Map;
+import java.math.BigDecimal;
 
 public interface DepthService {
     DepthModel getDepthModelBySymbol(String symbol);
@@ -15,5 +15,11 @@ public interface DepthService {
 
     void initializeOrderBooks();
 
-    Map<String, DepthStats> getDepthStats();
+    BigDecimal getNearestAskPrice(String symbol);
+
+    BigDecimal getNearestBidPrice(String symbol);
+
+    BigDecimal getAskPriceAbove(String symbol, int levels);
+
+    BigDecimal getBidPriceBelow(String symbol, int levels);
 }

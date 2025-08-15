@@ -29,7 +29,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class TradePlanServiceImpl implements TradePlanService{
+public class TradePlanServiceImpl implements TradePlanService {
     private final ModelMapper modelMapper;
     private final TradePlanLockRegistry lockRegistry;
     private final TradePlanRepository repository;
@@ -39,6 +39,7 @@ public class TradePlanServiceImpl implements TradePlanService{
     //todo remove
     private final TradingProcessService tradingProcessService;
     private final Ticker24hService ticker24hService;
+
     @Override
     @Transactional
     public TradePlan createPlan(TradePlanCreateDto dto) {
@@ -48,7 +49,7 @@ public class TradePlanServiceImpl implements TradePlanService{
         //check unique +
 
         if (repository.existsById(dto.getSymbol())) throw new IllegalArgumentException("Plan already exists.");
-        binanceService.setLeverage(dto.getSymbol(),dto.getLeverage());
+        binanceService.setLeverage(dto.getSymbol(), dto.getLeverage());
         binanceService.setMarginType(dto.getSymbol(), false); //params.put("marginType", isolated ? "ISOLATED" : "CROSSED");
 
         Map<String, SizeModel> sizeModelMap = SymbolHelper.getSizeModels(List.of(dto.getSymbol())); //todo
@@ -61,7 +62,7 @@ public class TradePlanServiceImpl implements TradePlanService{
         //todo check + save
         // update websocket etc. all cycle of klines/depth/aggTrade/ticker24h
         TradePlan savedPlan = repository.save(plan);
-        
+
         cacheManager.evictListCaches();
         dataSubscriptionService.subscribe(dto.getSymbol());
         return savedPlan;
@@ -70,26 +71,28 @@ public class TradePlanServiceImpl implements TradePlanService{
     @Override
     @Transactional
     public List<String> createManyPlans(List<TradePlanCreateDto> dtos) {
-            List<TradePlan> created = new ArrayList<>();
-            for (TradePlanCreateDto dto: dtos ) {
-                try {
-                    TradePlan newPlan = createPlan(dto);
-                    created.add(newPlan);
-                } catch (Exception e){
-                    log.error("Error creating {}", dto.getSymbol());
-                }
+        List<TradePlan> created = new ArrayList<>();
+        for (TradePlanCreateDto dto : dtos) {
+            try {
+                TradePlan newPlan = createPlan(dto);
+                created.add(newPlan);
+            } catch (Exception e) {
+                log.error("Error creating {}", dto.getSymbol());
             }
+        }
         return created.stream()
                 .map(TradePlan::getSymbol)
                 .toList();
     }
 
     @Override
-    @Transactional //todo
+    @Transactional
     public void startSession(String coin, String context, TradingDirection direction) {
         TradePlan plan = repository.findById(coin).orElseThrow(TradePlanNotFoundException::new);
         BigDecimal price = ticker24hService.getPrice(coin);
-        //TradePlan plan, TradingDirection direction, BigDecimal currentPrice, String context
+        if (plan.getActive()) {
+            throw new IllegalArgumentException("Plan already working."); //todo new
+        }
         tradingProcessService.openOrder(plan, direction, price, context);
     }
 }

@@ -2,6 +2,7 @@ package io.cryptobot.helpers;
 
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.enums.OrderType;
 import io.cryptobot.binance.order.model.Order;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,7 +21,7 @@ class OrderHelperTest {
         Order existing = Order.builder()
                 .symbol("BTCUSDT")
                 .clientOrderId("client1")
-                .orderType("LIMIT")
+                .orderType(OrderType.LIMIT)
                 .timeInForce("GTC")
                 .executionType("NEW")
                 .commissionAsset("BTC")
@@ -34,7 +35,7 @@ class OrderHelperTest {
         Order updated = Order.builder()
                 .symbol("ETHUSDT")
                 .clientOrderId("client2")
-                .orderType("MARKET")
+                .orderType(OrderType.MARKET)
                 .timeInForce("IOC")
                 .executionType("TRADE")
                 .commissionAsset("ETH")
@@ -66,7 +67,7 @@ class OrderHelperTest {
 
         assertEquals("ETHUSDT", existing.getSymbol());
         assertEquals("client2", existing.getClientOrderId());
-        assertEquals("MARKET", existing.getOrderType());
+        assertEquals(OrderType.MARKET, existing.getOrderType());
         assertEquals("IOC", existing.getTimeInForce());
         assertEquals("TRADE", existing.getExecutionType());
         assertEquals("ETH", existing.getCommissionAsset());

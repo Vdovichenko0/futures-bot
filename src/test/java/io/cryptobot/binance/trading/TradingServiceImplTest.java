@@ -3,11 +3,10 @@ package io.cryptobot.binance.trading;
 import io.cryptobot.binance.trade.trade_plan.model.TradeMetrics;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
-import io.cryptobot.binance.trading.process.TradingProcessService;
+import io.cryptobot.market_data.aggTrade.AggTrade;
 import io.cryptobot.market_data.aggTrade.AggTradeService;
+import io.cryptobot.market_data.depth.DepthModel;
 import io.cryptobot.market_data.depth.DepthService;
-import io.cryptobot.market_data.klines.enums.IntervalE;
-import io.cryptobot.market_data.klines.service.KlineService;
 import io.cryptobot.utils.logging.TradingLogWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -20,7 +19,8 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
-import java.util.Arrays;
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -35,9 +35,6 @@ class TradingServiceImplTest {
     private TradePlanGetService tradePlanGetService;
 
     @Mock
-    private KlineService klineService;
-
-    @Mock
     private AggTradeService aggTradeService;
 
     @Mock
@@ -46,14 +43,13 @@ class TradingServiceImplTest {
     @Mock
     private TradingLogWriter logWriter;
 
-    @Mock
-    private TradingProcessService tradingProcessService;
-
     @InjectMocks
     private TradingServiceImpl tradingService;
 
     private TradePlan testTradePlan;
     private TradeMetrics testMetrics;
+    private AggTrade testAggTrade;
+    private DepthModel testDepthModel;
 
     @BeforeEach
     void setUp() {
@@ -66,31 +62,49 @@ class TradingServiceImplTest {
         testMetrics.setMinShortPct(1.5);
         testMetrics.setMinImbalanceLong(0.6);
         testMetrics.setMaxImbalanceShort(0.4);
+        testMetrics.setVolWindowSec(30);
 
         // Подготовка TradePlan
         testTradePlan = new TradePlan();
         testTradePlan.onCreate("BTCUSDT", new BigDecimal("100.00"), 10, testMetrics, null);
+
+        // Подготовка AggTrade
+        testAggTrade = new AggTrade();
+        testAggTrade.setPrice(new BigDecimal("50000.00"));
+        testAggTrade.setQuantity(new BigDecimal("1.0"));
+        testAggTrade.setBuyerIsMaker(false);
+        testAggTrade.setTradeTime(System.currentTimeMillis());
+
+        // Подготовка DepthModel
+        testDepthModel = new DepthModel();
+        Map<BigDecimal, BigDecimal> bids = new HashMap<>();
+        Map<BigDecimal, BigDecimal> asks = new HashMap<>();
+        bids.put(new BigDecimal("49999.00"), new BigDecimal("10.0"));
+        bids.put(new BigDecimal("49998.00"), new BigDecimal("15.0"));
+        asks.put(new BigDecimal("50001.00"), new BigDecimal("8.0"));
+        asks.put(new BigDecimal("50002.00"), new BigDecimal("12.0"));
+        testDepthModel.updateBids(bids);
+        testDepthModel.updateAsks(asks);
     }
 
     @Test
     @DisplayName("Should handle empty active plans list")
-    void testHandleEmptyActivePlansList() {
+    void shouldHandleEmptyActivePlansList_whenNoActivePlans() {
         // Given
-        when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList());
+        when(tradePlanGetService.getAllActiveFalse()).thenReturn(Collections.emptyList());
 
         // When
         tradingService.startDemo();
 
         // Then
-        verify(klineService, never()).getKlines(anyString(), any());
-        verify(aggTradeService, never()).getRecentTrades(anyString(), anyInt());
+        verify(aggTradeService, never()).getRecentTradesDeque(anyString());
         verify(depthService, never()).getDepthModelBySymbol(anyString());
-        verify(tradingProcessService, never()).openOrder(any(), any(), any(), any());
+        verify(logWriter, never()).writeTradeLog(anyString(), anyString());
     }
 
     @Test
     @DisplayName("Should handle null active plans list")
-    void testHandleNullActivePlansList() {
+    void shouldHandleNullActivePlansList_whenServiceReturnsNull() {
         // Given
         when(tradePlanGetService.getAllActiveFalse()).thenReturn(null);
 
@@ -102,11 +116,11 @@ class TradingServiceImplTest {
 
     @Test
     @DisplayName("Should filter out closed plans")
-    void testFilterOutClosedPlans() {
+    void shouldFilterOutClosedPlans_whenPlanIsClosed() {
         // Given
         TradePlan closedPlan = new TradePlan();
         closedPlan.onCreate("ETHUSDT", new BigDecimal("50.00"), 5, testMetrics, null);
-        closedPlan.closePlan(); // Mark as closed
+        closedPlan.closePlan();
 
         when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(closedPlan));
 
@@ -114,47 +128,71 @@ class TradingServiceImplTest {
         tradingService.startDemo();
 
         // Then
-        verify(klineService, never()).getKlines(anyString(), any());
-        verify(aggTradeService, never()).getRecentTrades(anyString(), anyInt());
+        verify(aggTradeService, never()).getRecentTradesDeque(anyString());
         verify(depthService, never()).getDepthModelBySymbol(anyString());
-        verify(tradingProcessService, never()).openOrder(any(), any(), any(), any());
     }
 
     @Test
-    @DisplayName("Should handle missing klines data")
-    void testHandleMissingKlinesData() {
+    @DisplayName("Should handle empty trades data")
+    void shouldHandleEmptyTradesData_whenNoRecentTrades() {
         // Given
         when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(testTradePlan));
-        when(klineService.getKlines("BTCUSDT", IntervalE.ONE_MINUTE)).thenReturn(null);
-
-        // When & Then
-        assertDoesNotThrow(() -> {
-            tradingService.startDemo();
-        });
-    }
-
-    @Test
-    @DisplayName("Should handle empty klines data")
-    void testHandleEmptyKlinesData() {
-        // Given
-        when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(testTradePlan));
-        when(klineService.getKlines("BTCUSDT", IntervalE.ONE_MINUTE)).thenReturn(Arrays.asList());
+        when(aggTradeService.getRecentTradesDeque("BTCUSDT")).thenReturn(new ConcurrentLinkedDeque<>());
 
         // When
         tradingService.startDemo();
 
         // Then
-        verify(tradingProcessService, never()).openOrder(any(), any(), any(), any());
-        verify(aggTradeService, never()).getRecentTrades(anyString(), anyInt());
         verify(depthService, never()).getDepthModelBySymbol(anyString());
+        verify(logWriter, never()).writeTradeLog(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Should handle null depth data")
+    void shouldHandleNullDepthData_whenDepthServiceReturnsNull() {
+        // Given
+        Deque<AggTrade> trades = new ConcurrentLinkedDeque<>();
+        trades.add(testAggTrade);
+
+        when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(testTradePlan));
+        when(aggTradeService.getRecentTradesDeque("BTCUSDT")).thenReturn(trades);
+        when(depthService.getDepthModelBySymbol("BTCUSDT")).thenReturn(null);
+
+        // When
+        tradingService.startDemo();
+
+        // Then
+        verify(logWriter, never()).writeTradeLog(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Should handle empty depth data")
+    void shouldHandleEmptyDepthData_whenDepthHasNoBidsOrAsks() {
+        // Given
+        Deque<AggTrade> trades = new ConcurrentLinkedDeque<>();
+        trades.add(testAggTrade);
+
+        DepthModel emptyDepth = new DepthModel();
+        emptyDepth.updateBids(new HashMap<>());
+        emptyDepth.updateAsks(new HashMap<>());
+
+        when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(testTradePlan));
+        when(aggTradeService.getRecentTradesDeque("BTCUSDT")).thenReturn(trades);
+        when(depthService.getDepthModelBySymbol("BTCUSDT")).thenReturn(emptyDepth);
+
+        // When
+        tradingService.startDemo();
+
+        // Then
+        verify(logWriter, never()).writeTradeLog(anyString(), anyString());
     }
 
     @Test
     @DisplayName("Should handle exception during analysis")
-    void testHandleExceptionDuringAnalysis() {
+    void shouldHandleExceptionDuringAnalysis_whenExceptionOccurs() {
         // Given
         when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(testTradePlan));
-        when(klineService.getKlines("BTCUSDT", IntervalE.ONE_MINUTE)).thenThrow(new RuntimeException("Test exception"));
+        when(aggTradeService.getRecentTradesDeque("BTCUSDT")).thenThrow(new RuntimeException("Test exception"));
 
         // When & Then
         assertDoesNotThrow(() -> {
@@ -163,48 +201,22 @@ class TradingServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should handle multiple active plans")
-    void testHandleMultipleActivePlans() {
+    @DisplayName("Should process single active plan with valid data")
+    void shouldProcessSingleActivePlan_whenValidDataProvided() {
         // Given
-        TradePlan plan1 = new TradePlan();
-        plan1.onCreate("BTCUSDT", new BigDecimal("100.00"), 10, testMetrics, null);
+        Deque<AggTrade> trades = new ConcurrentLinkedDeque<>();
+        trades.add(testAggTrade);
 
-        TradePlan plan2 = new TradePlan();
-        plan2.onCreate("ETHUSDT", new BigDecimal("50.00"), 5, testMetrics, null);
-
-        when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(plan1, plan2));
-        when(klineService.getKlines(anyString(), any())).thenReturn(null); // Return null to trigger early return
-
-        // When & Then
-        assertDoesNotThrow(() -> {
-            tradingService.startDemo();
-        });
-    }
-
-    @Test
-    @DisplayName("Should not call trading process service when no signal conditions are met")
-    void testNoSignalConditions() {
-        // Given
         when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(testTradePlan));
-        when(klineService.getKlines("BTCUSDT", IntervalE.ONE_MINUTE)).thenReturn(null);
-
-        // When & Then
-        assertDoesNotThrow(() -> {
-            tradingService.startDemo();
-        });
-    }
-
-    @Test
-    @DisplayName("Should handle active plan with normal flow")
-    void testHandleActivePlanNormalFlow() {
-        // Given
-        when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(testTradePlan));
-        when(klineService.getKlines("BTCUSDT", IntervalE.ONE_MINUTE)).thenReturn(null);
+        when(aggTradeService.getRecentTradesDeque("BTCUSDT")).thenReturn(trades);
+        when(depthService.getDepthModelBySymbol("BTCUSDT")).thenReturn(testDepthModel);
 
         // When
         tradingService.startDemo();
 
         // Then
-        verify(tradingProcessService, never()).openOrder(any(), any(), any(), any());
+        // Проверяем что методы были вызваны (может быть несколько раз из-за executor)
+        verify(aggTradeService, atLeastOnce()).getRecentTradesDeque("BTCUSDT");
+        verify(depthService, atLeastOnce()).getDepthModelBySymbol("BTCUSDT");
     }
 } 

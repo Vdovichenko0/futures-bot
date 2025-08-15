@@ -131,7 +131,7 @@ class MonitoringServiceV3ImplTest {
         when(monitorHelper.getLatestActiveOrderByDirection(eq(testSession), eq(TradingDirection.SHORT)))
                 .thenReturn(shortOrder);
         when(monitorHelper.nvl(any())).thenReturn(BigDecimal.ZERO);
-        when(checkTrailing.checkNewTrailing(any(), any())).thenReturn(false);
+        when(checkTrailing.checkTrailing(any(), any())).thenReturn(false);
         when(averaging.checkOpen(any(), any(), any())).thenReturn(false);
         
         // ExtraClose возвращает true - должно сработать экстра закрытие
@@ -178,7 +178,7 @@ class MonitoringServiceV3ImplTest {
         when(monitorHelper.getLatestActiveOrderByDirection(eq(testSession), eq(TradingDirection.SHORT)))
                 .thenReturn(shortOrder);
         when(monitorHelper.nvl(any())).thenReturn(BigDecimal.ZERO);
-        when(checkTrailing.checkNewTrailing(any(), any())).thenReturn(false);
+        when(checkTrailing.checkTrailing(any(), any())).thenReturn(false);
         when(averaging.checkOpen(any(), any(), any())).thenReturn(false);
         
         // ExtraClose возвращает false - не должно сработать экстра закрытие
@@ -205,7 +205,7 @@ class MonitoringServiceV3ImplTest {
     @DisplayName("shouldCalculateCorrectPnLsForExtraClose")
     void shouldCalculateCorrectPnLsForExtraClose() {
         // Given
-        BigDecimal currentPrice = new BigDecimal("49000"); // цена упала
+        BigDecimal currentPrice = new BigDecimal("49000");
         
         // Настраиваем моки
         when(ticker24hService.getPrice("BTCUSDT")).thenReturn(currentPrice);
@@ -214,7 +214,7 @@ class MonitoringServiceV3ImplTest {
         when(monitorHelper.getLatestActiveOrderByDirection(eq(testSession), eq(TradingDirection.SHORT)))
                 .thenReturn(shortOrder);
         when(monitorHelper.nvl(any())).thenReturn(BigDecimal.ZERO);
-        when(checkTrailing.checkNewTrailing(any(), any())).thenReturn(false);
+        when(checkTrailing.checkTrailing(any(), any())).thenReturn(false);
         when(averaging.checkOpen(any(), any(), any())).thenReturn(false);
         
         // ExtraClose должен быть вызван с правильными PnL
@@ -318,18 +318,19 @@ class MonitoringServiceV3ImplTest {
         when(monitorHelper.getLatestActiveOrderByDirection(eq(testSession), eq(TradingDirection.SHORT)))
                 .thenReturn(shortOrder);
         when(monitorHelper.nvl(any())).thenReturn(BigDecimal.ZERO);
-        when(checkTrailing.checkNewTrailing(any(), any())).thenReturn(false);
+        when(checkTrailing.checkTrailing(any(), any())).thenReturn(false);
         when(averaging.checkOpen(any(), any(), any())).thenReturn(false);
         
         // ExtraClose бросает исключение
         when(extraClose.checkExtraClose(eq(testSession), any(), any(), any()))
                 .thenThrow(new RuntimeException("Test exception"));
 
-        // When & Then
-        // Не должно упасть с исключением
-        assertDoesNotThrow(() -> {
-            monitoringService.addToMonitoring(testSession);
-            monitoringService.monitor();
-        });
+        // When
+        monitoringService.addToMonitoring(testSession);
+        monitoringService.monitor();
+
+        // Then
+        // Не должно упасть с исключением, должно быть обработано
+        verify(tradingUpdatesService, never()).closePosition(any(), any(), any(), any(), any(), any(), any(), any());
     }
 }

@@ -3,6 +3,7 @@ package io.cryptobot.binance.trade.session.model;
 import io.cryptobot.binance.order.enums.OrderPurpose;
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.enums.OrderType;
 import io.cryptobot.binance.order.model.Order;
 import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.TradingDirection;
@@ -33,7 +34,7 @@ class TradeOrderTest {
                 .orderId(1001L)
                 .symbol("BTCUSDT")
                 .side(OrderSide.BUY)
-                .orderType("MARKET")
+                .orderType(OrderType.MARKET)
                 .quantity(BigDecimal.valueOf(0.1))
                 .averagePrice(BigDecimal.valueOf(50000))
                 .commission(BigDecimal.valueOf(0.5))
@@ -52,7 +53,7 @@ class TradeOrderTest {
                 .direction(TradingDirection.LONG)
                 .symbol("BTCUSDT")
                 .side(OrderSide.BUY)
-                .type("MARKET")
+                .type(OrderType.MARKET)
                 .count(BigDecimal.valueOf(0.1))
                 .price(BigDecimal.valueOf(50000))
                 .status(OrderStatus.FILLED)
@@ -65,7 +66,7 @@ class TradeOrderTest {
         assertEquals(TradingDirection.LONG, tradeOrder.getDirection());
         assertEquals("BTCUSDT", tradeOrder.getSymbol());
         assertEquals(OrderSide.BUY, tradeOrder.getSide());
-        assertEquals("MARKET", tradeOrder.getType());
+        assertEquals(OrderType.MARKET, tradeOrder.getType());
         assertEquals(BigDecimal.valueOf(0.1), tradeOrder.getCount());
         assertEquals(BigDecimal.valueOf(50000), tradeOrder.getPrice());
         assertEquals(OrderStatus.FILLED, tradeOrder.getStatus());
@@ -89,7 +90,7 @@ class TradeOrderTest {
         assertEquals(TradingDirection.LONG, tradeOrder.getDirection());
         assertEquals("BTCUSDT", tradeOrder.getSymbol());
         assertEquals(OrderSide.BUY, tradeOrder.getSide());
-        assertEquals("MARKET", tradeOrder.getType());
+        assertEquals(OrderType.MARKET, tradeOrder.getType());
         assertEquals(BigDecimal.valueOf(0.1), tradeOrder.getCount());
         assertEquals(BigDecimal.valueOf(50000), tradeOrder.getPrice());
         assertEquals(BigDecimal.valueOf(0.5), tradeOrder.getCommission());
@@ -136,7 +137,7 @@ class TradeOrderTest {
                 .direction(TradingDirection.LONG)
                 .symbol("BTCUSDT")
                 .side(OrderSide.BUY)
-                .type("MARKET")
+                .type(OrderType.MARKET)
                 .count(BigDecimal.valueOf(0.1))
                 .price(BigDecimal.valueOf(50000))
                 .amount(BigDecimal.valueOf(5000))
@@ -162,7 +163,7 @@ class TradeOrderTest {
         assertEquals(TradingDirection.LONG, tradeOrder.getDirection());
         assertEquals("BTCUSDT", tradeOrder.getSymbol());
         assertEquals(OrderSide.BUY, tradeOrder.getSide());
-        assertEquals("MARKET", tradeOrder.getType());
+        assertEquals(OrderType.MARKET, tradeOrder.getType());
         assertEquals(BigDecimal.valueOf(0.1), tradeOrder.getCount());
         assertEquals(BigDecimal.valueOf(50000), tradeOrder.getPrice());
         assertEquals(BigDecimal.valueOf(5000), tradeOrder.getAmount());
@@ -346,7 +347,7 @@ class TradeOrderTest {
                 .orderId(2001L)
                 .symbol("BTCUSDT")
                 .side(OrderSide.BUY)
-                .orderType("MARKET")
+                .orderType(OrderType.MARKET)
                 .quantity(new BigDecimal("0.5"))
                 .averagePrice(new BigDecimal("48000")) // Усреднение по 48000
                 .commission(new BigDecimal("2.0"))
@@ -408,7 +409,7 @@ class TradeOrderTest {
                 .orderId(2002L)
                 .symbol("BTCUSDT")
                 .side(OrderSide.SELL)
-                .orderType("MARKET")
+                .orderType(OrderType.MARKET)
                 .quantity(new BigDecimal("0.8"))
                 .averagePrice(new BigDecimal("52000")) // Усреднение по 52000
                 .commission(new BigDecimal("3.0"))
@@ -469,7 +470,7 @@ class TradeOrderTest {
                 .orderId(2003L)
                 .symbol("BTCUSDT")
                 .side(OrderSide.BUY)
-                .orderType("MARKET")
+                .orderType(OrderType.MARKET)
                 .quantity(new BigDecimal("0.5"))
                 .averagePrice(new BigDecimal("48000"))
                 .commission(new BigDecimal("2.0"))
@@ -515,7 +516,7 @@ class TradeOrderTest {
                 .orderId(2004L)
                 .symbol("BTCUSDT")
                 .side(OrderSide.BUY)
-                .orderType("MARKET")
+                .orderType(OrderType.MARKET)
                 .quantity(BigDecimal.ZERO) // Нулевое количество
                 .averagePrice(new BigDecimal("48000"))
                 .commission(new BigDecimal("2.0"))

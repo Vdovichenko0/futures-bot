@@ -3,6 +3,7 @@ package io.cryptobot.binance.trade.session.model;
 import io.cryptobot.binance.order.enums.OrderPurpose;
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.enums.OrderType;
 import io.cryptobot.binance.trade.session.enums.SessionMode;
 import io.cryptobot.binance.trade.session.enums.SessionStatus;
 import io.cryptobot.binance.trade.session.enums.TradingDirection;
@@ -289,7 +290,7 @@ class TradeSessionComplexTest {
                 .price(price)
                 .count(quantity)
                 .side(direction == TradingDirection.LONG ? OrderSide.BUY : OrderSide.SELL)
-                .type("MARKET")
+                .type(OrderType.MARKET)
                 .symbol("BTCUSDT")
                 .orderTime(LocalDateTime.now())
                 .parentOrderId(parentOrderId)

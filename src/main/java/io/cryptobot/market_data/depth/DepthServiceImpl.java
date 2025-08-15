@@ -149,20 +149,73 @@ public class DepthServiceImpl implements DepthService {
         return orderBooks.containsKey(symbol.toUpperCase());
     }
 
-    @Override //todo remove
-    public Map<String, DepthStats> getDepthStats() {
-        return orderBooks.entrySet().stream()
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        entry -> {
-                            DepthModel dm = entry.getValue();
-                            return new DepthStats(
-                                    entry.getKey(),
-                                    dm.getBids().size(),
-                                    dm.getAsks().size(),
-                                    dm.getLastUpdateId()
-                            );
-                        }
-                ));
+    @Override
+    public BigDecimal getNearestAskPrice(String symbol) {
+        if (symbol == null) return null;
+        
+        DepthModel depthModel = getDepthModelBySymbol(symbol);
+        if (depthModel == null || depthModel.getAsks().isEmpty()) {
+            return null;
+        }
+        
+        // asks отсортированы по возрастанию, поэтому первый элемент - самая низкая цена
+        return depthModel.getAsks().firstKey();
+    }
+
+    @Override
+    public BigDecimal getNearestBidPrice(String symbol) {
+        if (symbol == null) return null;
+        
+        DepthModel depthModel = getDepthModelBySymbol(symbol);
+        if (depthModel == null || depthModel.getBids().isEmpty()) {
+            return null;
+        }
+        
+        // bids отсортированы по убыванию, поэтому первый элемент - самая высокая цена
+        return depthModel.getBids().firstKey();
+    }
+
+    @Override
+    public BigDecimal getAskPriceAbove(String symbol, int levels) {
+        if (symbol == null || levels <= 0) return null;
+        
+        DepthModel depthModel = getDepthModelBySymbol(symbol);
+        if (depthModel == null || depthModel.getAsks().isEmpty()) {
+            return null;
+        }
+        
+        // asks отсортированы по возрастанию
+        // Получаем итератор и проходим на levels позиций вперед
+        var iterator = depthModel.getAsks().keySet().iterator();
+        
+        // Пропускаем первые levels позиций
+        for (int i = 0; i < levels && iterator.hasNext(); i++) {
+            iterator.next();
+        }
+        
+        // Возвращаем цену на levels позиций выше, если она существует
+        return iterator.hasNext() ? iterator.next() : null;
+    }
+
+    @Override
+    public BigDecimal getBidPriceBelow(String symbol, int levels) {
+        if (symbol == null || levels <= 0) return null;
+        
+        DepthModel depthModel = getDepthModelBySymbol(symbol);
+        if (depthModel == null || depthModel.getBids().isEmpty()) {
+            return null;
+        }
+        
+        // bids отсортированы по убыванию
+        // Получаем итератор и проходим на levels позиций вперед
+        var iterator = depthModel.getBids().keySet().iterator();
+        
+        // Пропускаем первые levels позиций
+        for (int i = 0; i < levels && iterator.hasNext(); i++) {
+            iterator.next();
+        }
+        
+        // Возвращаем цену на levels позиций ниже, если она существует
+        return iterator.hasNext() ? iterator.next() : null;
     }
 }

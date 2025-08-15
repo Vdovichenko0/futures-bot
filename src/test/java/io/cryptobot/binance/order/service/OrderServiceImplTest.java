@@ -1,12 +1,17 @@
 package io.cryptobot.binance.order.service;
 
 import com.binance.connector.futures.client.impl.UMFuturesClientImpl;
-import com.binance.connector.futures.client.impl.futures.Account;
+
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cryptobot.binance.order.dao.OrderRepository;
 import io.cryptobot.binance.order.enums.OrderSide;
 import io.cryptobot.binance.order.enums.OrderStatus;
+import io.cryptobot.binance.order.enums.OrderType;
 import io.cryptobot.binance.order.model.Order;
+import io.cryptobot.binance.trade.trade_plan.model.SizeModel;
+import io.cryptobot.market_data.depth.DepthService;
+import io.cryptobot.market_data.ticker24h.Ticker24hService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,12 +41,19 @@ class OrderServiceImplTest {
     private UMFuturesClientImpl mockClient;
 
     @Mock
-    private Account mockAccount;
+    private Object mockAccount;
+
+    @Mock
+    private Ticker24hService ticker24hService;
+
+    @Mock
+    private DepthService depthService;
 
     @InjectMocks
     private OrderServiceImpl orderService;
 
     private Order testOrder;
+    private SizeModel testSizeModel;
 
     @BeforeEach
     void setUp() {
@@ -49,13 +61,20 @@ class OrderServiceImplTest {
                 .orderId(123456789L)
                 .symbol("BTCUSDT")
                 .side(OrderSide.BUY)
-                .orderType("MARKET")
+                .orderType(OrderType.MARKET)
                 .quantity(new BigDecimal("0.001"))
                 .averagePrice(new BigDecimal("50000.00"))
                 .commission(new BigDecimal("0.05"))
                 .commissionAsset("USDT")
                 .orderStatus(OrderStatus.FILLED)
                 .tradeTime(System.currentTimeMillis())
+                .build();
+
+        testSizeModel = SizeModel.builder()
+                .tickSize(BigDecimal.ONE)
+                .lotSize(new BigDecimal("0.001"))
+                .minCount(new BigDecimal("0.001"))
+                .minAmount(new BigDecimal("10"))
                 .build();
     }
 
@@ -118,7 +137,7 @@ class OrderServiceImplTest {
                 .orderId(123456789L)
                 .symbol("BTCUSDT")
                 .side(OrderSide.BUY)
-                .orderType("MARKET")
+                .orderType(OrderType.MARKET)
                 .quantity(new BigDecimal("0.002"))
                 .averagePrice(new BigDecimal("51000.00"))
                 .commission(new BigDecimal("0.10"))
@@ -313,5 +332,41 @@ class OrderServiceImplTest {
 
         // Verify no repository interactions since the API call fails
         verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("Should return null when ticker service returns null price")
+    void shouldReturnNull_whenTickerServiceReturnsNullPrice() {
+        // Given
+        String symbol = "BTCUSDT";
+        Double amount = 0.001;
+        OrderSide side = OrderSide.BUY;
+        
+        when(ticker24hService.getPrice(symbol)).thenReturn(null);
+
+        // When
+        Order result = orderService.createLimitOrElseMarket(symbol, amount, side, testSizeModel);
+
+        // Then
+        assertNull(result);
+    }
+
+    @Test
+    @DisplayName("Should handle null depth price")
+    void shouldHandleNullDepthPrice() {
+        // Given
+        String symbol = "BTCUSDT";
+        Double amount = 0.001;
+        OrderSide side = OrderSide.BUY;
+        BigDecimal currentPrice = new BigDecimal("50000");
+        
+        when(ticker24hService.getPrice(symbol)).thenReturn(currentPrice);
+        when(depthService.getBidPriceBelow(symbol, 5)).thenReturn(null);
+
+        // When
+        Order result = orderService.createLimitOrElseMarket(symbol, amount, side, testSizeModel);
+
+        // Then
+        assertNull(result);
     }
 } 

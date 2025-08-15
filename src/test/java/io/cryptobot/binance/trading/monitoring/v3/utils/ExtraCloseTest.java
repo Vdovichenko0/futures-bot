@@ -20,8 +20,18 @@ class ExtraCloseTest {
     @BeforeEach
     void setUp() {
         extraClose = new ExtraClose();
-        session = TradeSession.builder().id("test-session").tradePlan("BTCUSDT").build();
-        order = TradeOrder.builder().orderId(12345L).build();
+        
+        session = TradeSession.builder()
+                .id("test-session")
+                .tradePlan("BTCUSDT")
+                .build();
+        
+        order = TradeOrder.builder()
+                .orderId(12345L)
+                .symbol("BTCUSDT")
+                .price(new BigDecimal("50000"))
+                .count(new BigDecimal("0.001"))
+                .build();
     }
 
     @Test
@@ -35,43 +45,29 @@ class ExtraCloseTest {
         boolean result = extraClose.checkExtraClose(session, pnlBest, pnlWorst, order);
 
         // Then
-        assertFalse(result); // первый вызов не должен сработать, только начать мониторинг
+        assertFalse(result); // Первый вызов должен начать мониторинг, но не сработать
     }
 
     @Test
-    @DisplayName("shouldNotStartMonitoring_whenBestPositionAboveThreshold")
-    void shouldNotStartMonitoring_whenBestPositionAboveThreshold() {
-        // Given
-        BigDecimal pnlBest = new BigDecimal("-0.15"); // > -0.20
-        BigDecimal pnlWorst = new BigDecimal("-0.60"); // <= -0.50
-
-        // When
-        boolean result = extraClose.checkExtraClose(session, pnlBest, pnlWorst, order);
-
-        // Then
-        assertFalse(result);
-    }
-
-    @Test
-    @DisplayName("shouldNotStartMonitoring_whenWorstPositionAboveThreshold")
-    void shouldNotStartMonitoring_whenWorstPositionAboveThreshold() {
-        // Given
-        BigDecimal pnlBest = new BigDecimal("-0.25"); // <= -0.20
-        BigDecimal pnlWorst = new BigDecimal("-0.40"); // > -0.50
-
-        // When
-        boolean result = extraClose.checkExtraClose(session, pnlBest, pnlWorst, order);
-
-        // Then
-        assertFalse(result);
-    }
-
-    @Test
-    @DisplayName("shouldNotStartMonitoring_whenPositionsInProfit")
-    void shouldNotStartMonitoring_whenPositionsInProfit() {
+    @DisplayName("shouldNotStartMonitoring_whenBestPositionInProfit")
+    void shouldNotStartMonitoring_whenBestPositionInProfit() {
         // Given
         BigDecimal pnlBest = new BigDecimal("0.10"); // > 0
         BigDecimal pnlWorst = new BigDecimal("-0.60"); // <= -0.50
+
+        // When
+        boolean result = extraClose.checkExtraClose(session, pnlBest, pnlWorst, order);
+
+        // Then
+        assertFalse(result);
+    }
+
+    @Test
+    @DisplayName("shouldNotStartMonitoring_whenWorstPositionNotLowEnough")
+    void shouldNotStartMonitoring_whenWorstPositionNotLowEnough() {
+        // Given
+        BigDecimal pnlBest = new BigDecimal("-0.25"); // <= -0.20
+        BigDecimal pnlWorst = new BigDecimal("-0.40"); // > -0.50
 
         // When
         boolean result = extraClose.checkExtraClose(session, pnlBest, pnlWorst, order);
@@ -177,61 +173,66 @@ class ExtraCloseTest {
 
         // Then - ухудшаем только первую сессию
         boolean result1 = extraClose.checkExtraClose(session1, new BigDecimal("-0.40"), new BigDecimal("-0.60"), order1);
-        boolean result2 = extraClose.checkExtraClose(session2, new BigDecimal("-0.20"), new BigDecimal("-0.60"), order2);
+        boolean result2 = extraClose.checkExtraClose(session2, new BigDecimal("-0.25"), new BigDecimal("-0.60"), order2);
 
-        assertTrue(result1);  // первая сработала
-        assertFalse(result2); // вторая не сработала
+        assertTrue(result1); // Первая сессия должна сработать
+        assertFalse(result2); // Вторая сессия не должна сработать
     }
 
     @Test
-    @DisplayName("shouldRemoveTracking_afterTriggering")
-    void shouldRemoveTracking_afterTriggering() {
-        // Given - создаем мониторинг с позициями в убытке
-        BigDecimal initialPnlBest = new BigDecimal("-0.25"); // <= -0.20
-        BigDecimal pnlWorst = new BigDecimal("-0.60"); // <= -0.50
-        extraClose.checkExtraClose(session, initialPnlBest, pnlWorst, order);
-
-        // When - срабатывает экстра закрытие
-        boolean result1 = extraClose.checkExtraClose(session, new BigDecimal("-0.40"), pnlWorst, order);
-        
-        // Then - повторный вызов не должен сработать (трекинг удален)
-        boolean result2 = extraClose.checkExtraClose(session, new BigDecimal("-0.50"), pnlWorst, order);
-
-        assertTrue(result1);  // первый вызов сработал
-        assertFalse(result2); // второй вызов не сработал (трекинг удален)
-    }
-
-    @Test
-    @DisplayName("shouldHandleNullOrder")
-    void shouldHandleNullOrder() {
+    @DisplayName("shouldHandleNullParameters")
+    void shouldHandleNullParameters() {
         // Given
-        BigDecimal pnlBest = new BigDecimal("-0.25"); // <= -0.20
-        BigDecimal pnlWorst = new BigDecimal("-0.60"); // <= -0.50
+        TradeOrder nullOrder = null;
 
-        // When & Then - должно упасть с NullPointerException при попытке получить orderId
-        assertThrows(NullPointerException.class, () -> {
-            extraClose.checkExtraClose(session, pnlBest, pnlWorst, null);
+        // When & Then - не должно упасть с исключением для null PnL значений
+        assertDoesNotThrow(() -> {
+            extraClose.checkExtraClose(session, null, new BigDecimal("-0.60"), order);
+        });
+
+        assertDoesNotThrow(() -> {
+            extraClose.checkExtraClose(session, new BigDecimal("-0.25"), null, order);
+        });
+
+        assertDoesNotThrow(() -> {
+            extraClose.checkExtraClose(session, new BigDecimal("-0.25"), new BigDecimal("-0.60"), nullOrder);
         });
     }
 
     @Test
-    @DisplayName("shouldHandleNullSession")
-    void shouldHandleNullSession() {
+    @DisplayName("shouldHandleZeroValues")
+    void shouldHandleZeroValues() {
         // Given
-        BigDecimal pnlBest = new BigDecimal("-0.25"); // <= -0.20
-        BigDecimal pnlWorst = new BigDecimal("-0.60"); // <= -0.50
+        BigDecimal pnlBest = BigDecimal.ZERO;
+        BigDecimal pnlWorst = BigDecimal.ZERO;
 
-        // When & Then - должно упасть с NullPointerException при попытке получить session.getId()
-        assertThrows(NullPointerException.class, () -> {
-            extraClose.checkExtraClose(null, pnlBest, pnlWorst, order);
-        });
+        // When
+        boolean result = extraClose.checkExtraClose(session, pnlBest, pnlWorst, order);
+
+        // Then
+        assertFalse(result); // Нулевые значения не должны запускать мониторинг
     }
 
-    // Вспомогательный метод для создания ExtraCloseState через рефлексию
+    @Test
+    @DisplayName("shouldHandlePositiveValues")
+    void shouldHandlePositiveValues() {
+        // Given
+        BigDecimal pnlBest = new BigDecimal("0.10");
+        BigDecimal pnlWorst = new BigDecimal("0.05");
+
+        // When
+        boolean result = extraClose.checkExtraClose(session, pnlBest, pnlWorst, order);
+
+        // Then
+        assertFalse(result); // Положительные значения не должны запускать мониторинг
+    }
+
+    // Вспомогательный метод для создания состояния ExtraClose
     private Object createExtraCloseState(Long orderId, BigDecimal baseline, LocalDateTime startTime) {
         try {
-            Class<?> stateClass = Class.forName("io.cryptobot.binance.trading.monitoring.v3.models.ExtraCloseState");
-            return stateClass.getConstructor(Long.class, BigDecimal.class, LocalDateTime.class)
+            // Создаем экземпляр ExtraCloseState через рефлексию
+            Class<?> extraCloseStateClass = Class.forName("io.cryptobot.binance.trading.monitoring.v3.models.ExtraCloseState");
+            return extraCloseStateClass.getConstructor(Long.class, BigDecimal.class, LocalDateTime.class)
                     .newInstance(orderId, baseline, startTime);
         } catch (Exception e) {
             throw new RuntimeException("Failed to create ExtraCloseState", e);

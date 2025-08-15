@@ -14,6 +14,7 @@ import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trading.monitoring.v3.MonitoringServiceV3;
 import io.cryptobot.binance.trading.process.TradingProcessService;
 import io.cryptobot.binance.trading.process.TradingProcessServiceImpl;
+import io.cryptobot.configs.locks.TradePlanLockRegistry;
 import io.cryptobot.configs.locks.TradeSessionLockRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,7 +45,7 @@ class TradingProcessServiceImplTest {
     private MonitoringServiceV3 monitoringService;
 
     @Mock
-    private TradeSessionLockRegistry lockRegistry;
+    private TradePlanLockRegistry lockRegistry;
 
     @InjectMocks
     private TradingProcessServiceImpl tradingProcessService;

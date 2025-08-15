@@ -54,6 +54,9 @@ public class ExtraClose {
     }
 
     private boolean shouldStartExtraClose(BigDecimal pnlBest, BigDecimal pnlWorst) {
+        if (pnlBest == null || pnlWorst == null) {
+            return false;
+        }
         if (pnlBest.compareTo(BigDecimal.ZERO) < 0 && pnlWorst.compareTo(BigDecimal.ZERO) < 0) {
             return pnlBest.compareTo(BEST_ORDER) <= 0 && pnlWorst.compareTo(LOW_ORDER) <= 0;
         }
@@ -61,11 +64,17 @@ public class ExtraClose {
     }
 
     private void start(TradeSession session, TradeOrder order, BigDecimal pnlBest) {
+        if (order == null) {
+            return;
+        }
         tracking.put(session.getId(), new ExtraCloseState(order.getOrderId(), pnlBest, LocalDateTime.now()));
 //        log.info("⚡ {} [{}] EXTRA CLOSE MONITORING STARTED for orderId={} baseline={}%", session.getId(), session.getTradePlan(), order.getOrderId(), pnlBest);
     }
 
     private boolean hasGoneDown(ExtraCloseState state, BigDecimal currentPnl) {
+        if (currentPnl == null) {
+            return false;
+        }
         return currentPnl.subtract(state.baseline()).compareTo(POSITION_GO_DOWN) <= 0;
     }
 

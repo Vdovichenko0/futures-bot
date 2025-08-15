@@ -14,6 +14,7 @@ import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
 import io.cryptobot.binance.trading.monitoring.v2.MonitoringServiceV2;
 import io.cryptobot.binance.trading.monitoring.v3.MonitoringServiceV3;
+import io.cryptobot.configs.locks.TradePlanLockRegistry;
 import io.cryptobot.configs.locks.TradeSessionLockRegistry;
 import io.cryptobot.market_data.ticker24h.Ticker24hService;
 import lombok.Getter;
@@ -37,7 +38,7 @@ public class TradingProcessServiceImpl implements TradingProcessService{
     private final OrderService orderService;
     private final MonitoringServiceV3 monitoringService;
     private final TradePlanGetService tradePlanGetService;
-    private final TradeSessionLockRegistry lockRegistry;
+    private final TradePlanLockRegistry lockRegistry;
     @Getter
     @Setter
     private int maxWaitMillis = 15000;
@@ -53,7 +54,7 @@ public class TradingProcessServiceImpl implements TradingProcessService{
     @Override
     @Transactional
     public void openOrder(TradePlan plan, TradingDirection direction, BigDecimal currentPrice, String context) {
-        ReentrantLock lock = lockRegistry.getLock(plan.getCurrentSessionId()); //todo session ID or like this
+        ReentrantLock lock = lockRegistry.getLock(plan.getSymbol());
         lock.lock();
         try {
             //calc count - amount/current price / lot-tick size

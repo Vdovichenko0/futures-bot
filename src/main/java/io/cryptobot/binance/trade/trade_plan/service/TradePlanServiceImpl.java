@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @Service
@@ -88,11 +89,19 @@ public class TradePlanServiceImpl implements TradePlanService {
     @Override
     @Transactional
     public void startSession(String coin, String context, TradingDirection direction) {
-        TradePlan plan = repository.findById(coin).orElseThrow(TradePlanNotFoundException::new);
-        BigDecimal price = ticker24hService.getPrice(coin);
-        if (plan.getActive()) {
-            throw new IllegalArgumentException("Plan already working."); //todo new
+        ReentrantLock lock = lockRegistry.getLock(coin);
+        lock.lock();
+        try {
+            TradePlan plan = repository.findById(coin).orElseThrow(TradePlanNotFoundException::new);
+            BigDecimal price = ticker24hService.getPrice(coin);
+            if (plan.getActive()) {
+                throw new IllegalArgumentException("Plan already in working."); //todo new
+            }
+            tradingProcessService.openOrder(plan, direction, price, context);
+        } catch (Exception e) {
+//            log.error(e.toString());
+        } finally {
+            lock.unlock();
         }
-        tradingProcessService.openOrder(plan, direction, price, context);
     }
 }

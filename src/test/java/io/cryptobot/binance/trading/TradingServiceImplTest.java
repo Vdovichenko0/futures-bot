@@ -152,7 +152,17 @@ class TradingServiceImplTest {
     void shouldHandleNullDepthData_whenDepthServiceReturnsNull() {
         // Given
         Deque<AggTrade> trades = new ConcurrentLinkedDeque<>();
-        trades.add(testAggTrade);
+        // Добавляем достаточно данных для расчета EMA
+        for (int i = 0; i < 60; i++) {
+            AggTrade trade = AggTrade.builder()
+                    .symbol("BTCUSDT")
+                    .price(new BigDecimal("50000").add(new BigDecimal(i)))
+                    .quantity(new BigDecimal("0.001"))
+                    .tradeTime(System.currentTimeMillis() - (60 - i) * 1000)
+                    .aggregateTradeId((long) i)
+                    .build();
+            trades.add(trade);
+        }
 
         when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(testTradePlan));
         when(aggTradeService.getRecentTradesDeque("BTCUSDT")).thenReturn(trades);
@@ -162,6 +172,12 @@ class TradingServiceImplTest {
         tradingService.startDemo();
 
         // Then
+        // Ждем завершения асинхронных операций
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         verify(logWriter, never()).writeTradeLog(anyString(), anyString());
     }
 
@@ -170,7 +186,17 @@ class TradingServiceImplTest {
     void shouldHandleEmptyDepthData_whenDepthHasNoBidsOrAsks() {
         // Given
         Deque<AggTrade> trades = new ConcurrentLinkedDeque<>();
-        trades.add(testAggTrade);
+        // Добавляем достаточно данных для расчета EMA
+        for (int i = 0; i < 60; i++) {
+            AggTrade trade = AggTrade.builder()
+                    .symbol("BTCUSDT")
+                    .price(new BigDecimal("50000").add(new BigDecimal(i)))
+                    .quantity(new BigDecimal("0.001"))
+                    .tradeTime(System.currentTimeMillis() - (60 - i) * 1000)
+                    .aggregateTradeId((long) i)
+                    .build();
+            trades.add(trade);
+        }
 
         DepthModel emptyDepth = new DepthModel();
         emptyDepth.updateBids(new HashMap<>());
@@ -184,6 +210,12 @@ class TradingServiceImplTest {
         tradingService.startDemo();
 
         // Then
+        // Ждем завершения асинхронных операций
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         verify(logWriter, never()).writeTradeLog(anyString(), anyString());
     }
 
@@ -205,7 +237,17 @@ class TradingServiceImplTest {
     void shouldProcessSingleActivePlan_whenValidDataProvided() {
         // Given
         Deque<AggTrade> trades = new ConcurrentLinkedDeque<>();
-        trades.add(testAggTrade);
+        // Добавляем достаточно данных для расчета EMA (нужно минимум 50 тиков для EMA50)
+        for (int i = 0; i < 60; i++) {
+            AggTrade trade = AggTrade.builder()
+                    .symbol("BTCUSDT")
+                    .price(new BigDecimal("50000").add(new BigDecimal(i)))
+                    .quantity(new BigDecimal("0.001"))
+                    .tradeTime(System.currentTimeMillis() - (60 - i) * 1000) // разные времена
+                    .aggregateTradeId((long) i)
+                    .build();
+            trades.add(trade);
+        }
 
         when(tradePlanGetService.getAllActiveFalse()).thenReturn(Arrays.asList(testTradePlan));
         when(aggTradeService.getRecentTradesDeque("BTCUSDT")).thenReturn(trades);
@@ -215,6 +257,13 @@ class TradingServiceImplTest {
         tradingService.startDemo();
 
         // Then
+        // Ждем завершения асинхронных операций
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        
         // Проверяем что методы были вызваны (может быть несколько раз из-за executor)
         verify(aggTradeService, atLeastOnce()).getRecentTradesDeque("BTCUSDT");
         verify(depthService, atLeastOnce()).getDepthModelBySymbol("BTCUSDT");

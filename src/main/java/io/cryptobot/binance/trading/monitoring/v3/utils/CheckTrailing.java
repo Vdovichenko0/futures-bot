@@ -17,7 +17,7 @@ public class CheckTrailing {
     private final MonitorHelper monitorHelper;
     private static final BigDecimal COMMISSION_PCT = new BigDecimal("0.036"); // 0.036%
     private static final BigDecimal TRAILING_ACTIVATION_THRESHOLD_PCT = new BigDecimal("0.20");
-    private static final BigDecimal TRAILING_CLOSE_RETRACE_RATIO = new BigDecimal("0.80");  // Закрытие при 20% отката
+    private static final BigDecimal TRAILING_CLOSE_RETRACE_RATIO = new BigDecimal("0.70");  // Закрытие при 20% отката
 
     public boolean checkNewTrailing(TradeOrder order, BigDecimal currentPnl) {
         if (currentPnl.compareTo(monitorHelper.nvl(order.getPnlHigh())) > 0) {

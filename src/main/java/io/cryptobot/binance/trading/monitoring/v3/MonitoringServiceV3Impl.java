@@ -58,13 +58,13 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
 
     // Трейлинг
 //  private static final BigDecimal TRAILING_ACTIVATION_THRESHOLD_PCT = new BigDecimal("0.10"); // Активация при +0.10%
-    private static final BigDecimal TRAILING_CLOSE_RETRACE_RATIO = new BigDecimal("0.80");  // Закрытие при 20% отката
+    private static final BigDecimal TRAILING_CLOSE_RETRACE_RATIO = new BigDecimal("0.70");  // Закрытие при 20% отката //todo adap
 
     // Одна позиция: отслеживание и ранний хедж
     private static final BigDecimal SINGLE_TRACKING_START_PCT = new BigDecimal("-0.20"); // Старт отслеживания при -0.20%
-    private static final BigDecimal SINGLE_EARLY_HEDGE_PCT = new BigDecimal("-0.10"); // Ранний хедж до трекинга
-    private static final BigDecimal SINGLE_WORSEN_DELTA_PCT = new BigDecimal("-0.06"); // Ухудшение от baseline → хедж
-    private static final BigDecimal SINGLE_IMPROVE_DELTA_PCT = new BigDecimal("0.05");  // Улучшение > +0.10% → ждём откат ≥30% и хедж (old)
+    private static final BigDecimal SINGLE_EARLY_HEDGE_PCT = new BigDecimal("-0.20"); // Ранний хедж до трекинга
+    private static final BigDecimal SINGLE_WORSEN_DELTA_PCT = new BigDecimal("-0.1"); // Ухудшение от baseline → хедж
+    private static final BigDecimal SINGLE_IMPROVE_DELTA_PCT = new BigDecimal("0.1");  // Улучшение > +0.10% → ждём откат ≥30% и хедж (old)
 
     // Две позиции
     private static final BigDecimal TWO_POS_PROFITABLE_ACTIVATION_PCT = new BigDecimal("0.20");  // Порог активации трейла у best
@@ -160,7 +160,7 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
                 //get direction by one opened position
                 TradingDirection dir = session.isActiveLong() ? TradingDirection.LONG : session.isActiveShort() ? TradingDirection.SHORT : null;
 
-                TradeOrder active = monitorHelper.getLatestActiveOrderByDirection(session,dir);
+                TradeOrder active = monitorHelper.getLatestActiveOrderByDirection(session, dir);
                 if (active == null || active.getPrice() == null || active.getPrice().compareTo(BigDecimal.ZERO) == 0) {
                     log.warn("⚠️ Session {}: No active order found for monitoring, skipping", session.getId());
                     return;
@@ -211,10 +211,10 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
         if (st == null && pnl.compareTo(SINGLE_EARLY_HEDGE_PCT) <= 0) {
             TradingDirection hedgeDir = monitorHelper.opposite(order.getDirection());
             log.info("⚠️ {} [{}] EARLY HEDGE {}: pnl={}% <= {}% (before tracking), entry={}, current={}",
-                    session.getId(), 
+                    session.getId(),
                     session.getTradePlan(),
                     hedgeDir,
-                    pnl.setScale(3, RoundingMode.HALF_UP), 
+                    pnl.setScale(3, RoundingMode.HALF_UP),
                     SINGLE_EARLY_HEDGE_PCT,
                     order.getPrice().setScale(8, RoundingMode.HALF_UP),
                     price.setScale(8, RoundingMode.HALF_UP));
@@ -232,8 +232,8 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
                     .trailHigh(pnl) // от этого уровня начнём улучшение
                     .build();
             singleTrackBySession.put(session.getId(), st);
-            log.info("🧭 {} [{}] SINGLE TRACKING START {}: baseline={}%", 
-                    session.getId(), 
+            log.info("🧭 {} [{}] SINGLE TRACKING START {}: baseline={}%",
+                    session.getId(),
                     session.getTradePlan(),
                     order.getDirection(),
                     st.getBaseline());
@@ -248,11 +248,11 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
             if (delta.compareTo(SINGLE_WORSEN_DELTA_PCT) <= 0) {
                 TradingDirection hedgeDir = monitorHelper.opposite(order.getDirection());
                 log.info("📉 {} [{}] SINGLE TRACKING WORSEN {}: delta={}% <= {}% (baseline={}%), current PnL={}%, entry={}, current={}",
-                        session.getId(), 
+                        session.getId(),
                         session.getTradePlan(),
                         hedgeDir,
                         delta.setScale(3, RoundingMode.HALF_UP),
-                        SINGLE_WORSEN_DELTA_PCT, 
+                        SINGLE_WORSEN_DELTA_PCT,
                         st.getBaseline().setScale(3, RoundingMode.HALF_UP),
                         pnl.setScale(3, RoundingMode.HALF_UP),
                         order.getPrice().setScale(8, RoundingMode.HALF_UP),
@@ -269,11 +269,11 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
                 st.setTrailActive(true);
                 st.setTrailHigh(pnl);
                 log.info("🚀 {} [{}] SINGLE SOFT-TRAIL ENABLED {}: delta={}% > {}% (baseline={}%), pnl>0",
-                        session.getId(), 
+                        session.getId(),
                         session.getTradePlan(),
                         order.getDirection(),
                         delta.setScale(3, RoundingMode.HALF_UP),
-                        SINGLE_IMPROVE_DELTA_PCT, 
+                        SINGLE_IMPROVE_DELTA_PCT,
                         st.getBaseline().setScale(3, RoundingMode.HALF_UP));
             }
             if (st.isTrailActive()) {
@@ -282,10 +282,10 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
                     BigDecimal oldHigh = st.getTrailHigh();
                     st.setTrailHigh(pnl);
                     log.info("📈 {} [{}] SINGLE SOFT-TRAIL HIGH UPDATED {}: {}% → {}%",
-                            session.getId(), 
+                            session.getId(),
                             session.getTradePlan(),
                             order.getDirection(),
-                            oldHigh.setScale(3, RoundingMode.HALF_UP), 
+                            oldHigh.setScale(3, RoundingMode.HALF_UP),
                             pnl.setScale(3, RoundingMode.HALF_UP));
                 }
 
@@ -299,7 +299,7 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
                 if (softRetrace.compareTo(BigDecimal.ZERO) > 0 && pnl.compareTo(softRetrace) <= 0) {
                     TradingDirection hedgeDir = monitorHelper.opposite(order.getDirection());
                     log.info("🔴 {} [{}] SINGLE SOFT-TRAIL TRIGGERED {}: current={}% <= retrace={}% (high={}%), entry={}, current={}",
-                            session.getId(), 
+                            session.getId(),
                             session.getTradePlan(),
                             hedgeDir,
                             pnl.setScale(3, RoundingMode.HALF_UP),
@@ -334,7 +334,7 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
             fu.setSoftTrailActive(false);
             fu.setSoftTrailHigh(pnl);
             log.info("🧭 {} [{}] FOLLOW-UP START {}: baseline={}%, order={}",
-                    session.getId(), 
+                    session.getId(),
                     session.getTradePlan(),
                     fu.getLosingDirection(),
                     fu.getBaseline().setScale(3, RoundingMode.HALF_UP),
@@ -369,11 +369,11 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
             fu.setSoftTrailActive(true);
             fu.setSoftTrailHigh(pnl);
             log.info("🚀 {} [{}] FOLLOW-UP SOFT-TRAIL ENABLED {}: delta={}% > {}% (baseline={}%), pnl>0",
-                    session.getId(), 
+                    session.getId(),
                     session.getTradePlan(),
                     fu.getLosingDirection(),
                     delta.setScale(3, RoundingMode.HALF_UP),
-                    SINGLE_IMPROVE_DELTA_PCT, 
+                    SINGLE_IMPROVE_DELTA_PCT,
                     fu.getBaseline().setScale(3, RoundingMode.HALF_UP));
         }
         if (fu.isSoftTrailActive()) {
@@ -381,10 +381,10 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
                 BigDecimal oldHigh = fu.getSoftTrailHigh();
                 fu.setSoftTrailHigh(pnl);
                 log.info("📈 {} [{}] FOLLOW-UP SOFT-TRAIL HIGH UPDATED {}: {}% → {}%",
-                        session.getId(), 
+                        session.getId(),
                         session.getTradePlan(),
                         fu.getLosingDirection(),
-                        oldHigh.setScale(3, RoundingMode.HALF_UP), 
+                        oldHigh.setScale(3, RoundingMode.HALF_UP),
                         pnl.setScale(3, RoundingMode.HALF_UP));
             }
 
@@ -398,7 +398,7 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
             if (softRetrace.compareTo(BigDecimal.ZERO) > 0 && pnl.compareTo(softRetrace) <= 0) {
                 TradingDirection hedgeDir = monitorHelper.opposite(losing.getDirection());
                 log.info("🔴 {} [{}] FOLLOW-UP SOFT-TRAIL TRIGGERED {}: current={}% <= retrace={}% (high={}%), entry={}, current={}",
-                        session.getId(), 
+                        session.getId(),
                         session.getTradePlan(),
                         hedgeDir,
                         pnl.setScale(3, RoundingMode.HALF_UP),
@@ -502,21 +502,16 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
             best.setPnlHigh(bestPnl);
             // baseline для worst зафиксируем уже в single follow-up, когда одна нога останется
             log.info("🎯 {} [{}] TWO-POS BEST {} TRAILING ACTIVATED: {}% (threshold: {}%)",
-                    session.getId(), 
+                    session.getId(),
                     session.getTradePlan(),
-                    best.getDirection(), 
-                    bestPnl.setScale(3, RoundingMode.HALF_UP), 
+                    best.getDirection(),
+                    bestPnl.setScale(3, RoundingMode.HALF_UP),
                     TWO_POS_PROFITABLE_ACTIVATION_PCT);
         }
 
         // 2.1) check extra close
         if (extraClose.checkExtraClose(session, bestPnl, pnlWorst, best)) {
 //            log.info("check extra close and return true, we can close order {} {}", best.getSymbol(), best.getDirection());
-            //for demo
-//            if (!session.getTradePlan().equals("LINKUSDC") && !session.getTradePlan().equals("1000SHIBUSDC")){
-//                routeClose(session, longOrder, SessionMode.HEDGING,
-//                        String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
-//            }
             routeClose(session, longOrder, SessionMode.HEDGING, String.format("extra_close bestPnl=%.3f worstPnl=%.3f", bestPnl, pnlWorst));
 //            return; need return?
         }
@@ -572,18 +567,18 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
         if (candidate == null) return;
         if (OrderPurpose.AVERAGING_OPEN.equals(candidate.getPurpose())) {
             log.info("🔒 {} [{}] ROUTE CLOSE → AVERAGING_CLOSE {}: orderId={}, parent={}",
-                    session.getId(), 
+                    session.getId(),
                     session.getTradePlan(),
                     candidate.getDirection(),
-                    candidate.getOrderId(), 
+                    candidate.getOrderId(),
                     candidate.getParentOrderId());
             executeCloseAverage(session, candidate, mode, reason);
         } else {
             log.info("🔒 {} [{}] ROUTE CLOSE → NORMAL_CLOSE {}: orderId={}, purpose={}",
-                    session.getId(), 
+                    session.getId(),
                     session.getTradePlan(),
                     candidate.getDirection(),
-                    candidate.getOrderId(), 
+                    candidate.getOrderId(),
                     candidate.getPurpose());
             executeClosePosition(session, candidate, mode, reason);
         }
@@ -680,10 +675,10 @@ public class MonitoringServiceV3Impl implements MonitoringServiceV3 {
             Long parentOrderId = order.getOrderId();
 
             log.info("📊 {} [{}] REQUEST AVERAGE {}: symbol={}, side={}, purpose={}",
-                    session.getId(), 
+                    session.getId(),
                     session.getTradePlan(),
                     order.getDirection(),
-                    order.getSymbol(), 
+                    order.getSymbol(),
                     order.getSide(),
                     purpose);
             TradeSession updated = tradingUpdatesService.openAveragePosition(

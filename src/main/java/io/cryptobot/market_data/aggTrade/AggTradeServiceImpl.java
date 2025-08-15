@@ -37,18 +37,27 @@ public class AggTradeServiceImpl implements AggTradeService{
     }
 
     @Override
-    public List<AggTrade> getRecentTrades(String coin, int limit) {
-        Deque<AggTrade> deque = aggTrades.get(coin.toUpperCase());
-        if (deque == null) return List.of();
-        synchronized (deque) {
-            Iterator<AggTrade> it = deque.iterator();
-            List<AggTrade> slice = new ArrayList<>(limit);
-            for (int i = 0; i < limit && it.hasNext(); i++) {
-                slice.add(it.next());
-            }
-            return slice;
+    public Deque<AggTrade> getRecentTradesDeque(String coin) {
+        Deque<AggTrade> dq = aggTrades.get(coin.toUpperCase());
+        if (dq == null) return new ArrayDeque<>();
+        synchronized (dq) {
+            return new ArrayDeque<>(dq); // snapshot: head=newest, tail=oldest
         }
     }
+
+//    @Override
+//    public List<AggTrade> getRecentTrades(String coin, int limit) {
+//        Deque<AggTrade> deque = aggTrades.get(coin.toUpperCase());
+//        if (deque == null) return List.of();
+//        synchronized (deque) {
+//            Iterator<AggTrade> it = deque.iterator();
+//            List<AggTrade> slice = new ArrayList<>(limit);
+//            for (int i = 0; i < limit && it.hasNext(); i++) {
+//                slice.add(it.next());
+//            }
+//            return slice;
+//        }
+//    }
 
     @PostConstruct
     public void initialize() {
@@ -67,6 +76,10 @@ public class AggTradeServiceImpl implements AggTradeService{
             String resp = restTemplate.getForObject(url, String.class);
             JsonNode root = objectMapper.readTree(resp);
             List<AggTrade> trades = AggTradeMapper.fromRest(coin, root);
+            trades.sort(Comparator
+                    .comparingLong(AggTrade::getTradeTime)
+                    .thenComparingLong(AggTrade::getAggregateTradeId));
+
             for (AggTrade t : trades) {
                 addAggTrade(t);
             }

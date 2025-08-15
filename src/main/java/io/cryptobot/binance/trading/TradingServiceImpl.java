@@ -1,52 +1,42 @@
 package io.cryptobot.binance.trading;
 
-import io.cryptobot.binance.trade.session.enums.TradingDirection;
 import io.cryptobot.binance.trade.trade_plan.model.TradeMetrics;
 import io.cryptobot.binance.trade.trade_plan.model.TradePlan;
 import io.cryptobot.binance.trade.trade_plan.service.get.TradePlanGetService;
-import io.cryptobot.binance.trading.process.TradingProcessService;
 import io.cryptobot.market_data.aggTrade.AggTrade;
 import io.cryptobot.market_data.aggTrade.AggTradeService;
 import io.cryptobot.market_data.depth.DepthModel;
 import io.cryptobot.market_data.depth.DepthService;
-import io.cryptobot.market_data.klines.enums.IntervalE;
-import io.cryptobot.market_data.klines.model.KlineModel;
-import io.cryptobot.market_data.klines.service.KlineService;
-import io.cryptobot.calculator.Calculator;
-import io.cryptobot.calculator.EmaValues;
 import io.cryptobot.utils.logging.TradingLogWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.List;
+import java.util.Deque;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class TradingServiceImpl implements TradingService {
-    private static final int AGG_TRADE_LIMIT = 3600;
+
+//    private static final int AGG_TRADE_LIMIT = 3600;  // управляется на стороне сервиса тиков
     private static final double DEPTH_EPS = 1e-6;
 
     private final TradePlanGetService tradePlanGetService;
-    private final KlineService klineService;
     private final AggTradeService aggTradeService;
     private final DepthService depthService;
     private final TradingLogWriter logWriter;
-    private final TradingProcessService tradingProcessService;
+//    private final TradingProcessService tradingProcessService;
 
-    private final Map<String, String> lastSignalMap = new ConcurrentHashMap<>();
-    private final Map<String, Integer> sameCountMap = new ConcurrentHashMap<>();
-    private final Map<String, Long> lockMap = new ConcurrentHashMap<>();
+    private final Map<String, Direction> lastDecisionMap = new ConcurrentHashMap<>();
+    private final Map<String, Integer>   streakMap      = new ConcurrentHashMap<>();
+    private final Map<String, Long>      lockMap        = new ConcurrentHashMap<>();
 
-    private final ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private final ExecutorService executor =
+            Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
     @Override
     @Scheduled(initialDelay = 10_000, fixedRate = 1_000)
@@ -56,172 +46,246 @@ public class TradingServiceImpl implements TradingService {
                 .forEach(plan -> executor.submit(() -> analyzeSymbol(plan)));
     }
 
-    //todo lock plan if get signal to 1 min
     private void analyzeSymbol(TradePlan plan) {
-        String symbol = plan.getSymbol();
-        
-        // Проверяем блокировку на 1 минуту
+        final String symbol = plan.getSymbol();
+
+        // check if plan in lock
         Long lockTime = lockMap.get(symbol);
-        if (lockTime != null && System.currentTimeMillis() - lockTime < 60_000) {
-            return; 
-        }
-        
-        TradeMetrics metrics = plan.getMetrics();
-        final double EMA_SENSITIVITY = metrics.getEmaSensitivity();
-        final int DEPTH_LEVELS = metrics.getDepthLevels();
-        final double VOL_RATIO_THRESHOLD = metrics.getVolRatioThreshold();
-        final double MIN_LONG_PCT = metrics.getMinLongPct();
-        final double MIN_SHORT_PCT = metrics.getMinShortPct();
-        final double MIN_IMBALANCE_LONG = metrics.getMinImbalanceLong();
-        final double MAX_IMBALANCE_SHORT = metrics.getMaxImbalanceShort();
+        if (lockTime != null && System.currentTimeMillis() - lockTime < 60_000) return;
 
-        long startTime = System.currentTimeMillis();
-        String signal = "NO"; 
+        final TradeMetrics m = plan.getMetrics();
+        final double EMA_SENS   = m.getEmaSensitivity();
+        final int    DEPTH_LV   = m.getDepthLevels();
+        final double VOL_TH     = m.getVolRatioThreshold();
+        final double MIN_LP     = m.getMinLongPct();
+        final double MIN_SP     = m.getMinShortPct();
+        final double MIN_IMB_L  = m.getMinImbalanceLong();
+        final double MAX_IMB_S  = m.getMaxImbalanceShort();
+        final int    VOL_WIN    = m.getVolWindowSec();
+
+        long t0 = System.currentTimeMillis();
+        Direction finalDecision = Direction.NEUTRAL;
+
         try {
-            // 1. EMA Trend & diff
-            List<KlineModel> klines = klineService.getKlines(symbol, IntervalE.ONE_MINUTE);
-            if (klines == null || klines.isEmpty()) {
-                log.warn("No klines available for symbol: {}", symbol);
-                return;
-            }
-            EmaValues ema = Calculator.calculateEma(klines, false, true, true, false);
-            double ema20 = ema.getEma20();
-            double ema50 = ema.getEma50();
-            String trend;
-            if (ema20 > ema50 * (1 + EMA_SENSITIVITY)) {
-                trend = "long";
-            } else if (ema20 < ema50 * (1 - EMA_SENSITIVITY)) {
-                trend = "short";
-            } else {
-                trend = null;
-            }
+            // === Тики (Deque: head=newest, tail=oldest) ===
+            Deque<AggTrade> ticks = aggTradeService.getRecentTradesDeque(symbol);
+            if (ticks.isEmpty()) return;
 
-            // 2. VolRatio
-            List<AggTrade> ticks = aggTradeService.getRecentTrades(symbol, AGG_TRADE_LIMIT);
-            if (ticks.isEmpty()) {
-                return;
-            }
+            // === EMA по хронологии (old->new через descendingIterator) ===
+            double ema20 = calculateEMA(ticks, 20);
+            double ema50 = calculateEMA(ticks, 50);
+            Direction emaDir = dirEma(ema20, ema50, EMA_SENS);
 
-            long nowSec = Instant.now().getEpochSecond();
-            double totalMinuteVol = ticks.stream()
-                    .filter(t -> nowSec - (t.getTradeTime() / 1_000) <= 60)
-                    .mapToDouble(t -> t.getQuantity().doubleValue())
-                    .sum();
-            double avgSecVol = totalMinuteVol > 0 ? totalMinuteVol / 60.0 : 0.0;
-            double currentSecVol = ticks.stream()
-                    .filter(t -> nowSec - (t.getTradeTime() / 1_000) <= 1)
-                    .mapToDouble(t -> t.getQuantity().doubleValue())
-                    .sum();
-            double volRatio = avgSecVol > 0 ? currentSecVol / avgSecVol : 0.0;
+            // === Volume Ratio (baseline 60s, окно VOL_WIN) ===
+            double volRatio = calcVolRatio(ticks, VOL_WIN);
+            Direction volDir = dirVolume(volRatio, VOL_TH, emaDir); // объём — усилитель тренда
 
-            // 3. Imbalance [0…1]
+            // === Order Book Imbalance (top DEPTH_LV уровней) ===
             DepthModel depth = depthService.getDepthModelBySymbol(symbol);
-            if (depth == null || depth.getBids() == null || depth.getAsks() == null ||
-                    depth.getBids().isEmpty() || depth.getAsks().isEmpty()) {
-                log.warn("No depth data available for symbol: {}", symbol);
-                return;
+            if (depth == null || depth.getBids().isEmpty() || depth.getAsks().isEmpty()) return;
+            double imbalance = calcImbalance(depth, DEPTH_LV);
+            Direction imbDir = dirImbalance(imbalance, MIN_IMB_L, MAX_IMB_S);
+
+            // === Long/Short % по тикам ===
+            double[] ls = calcLongShortPct(ticks);
+            double lp = ls[0], sp = ls[1];
+            Direction lsrDir = dirLongShort(lp, sp, MIN_LP, MIN_SP);
+
+            // === Текущая цена = самый новый тик (head) ===
+            double currentPrice = ticks.peekFirst() != null ? ticks.peekFirst().getPrice().doubleValue() : 0.0;
+
+            // === Агрегатор: строго 4/4 в одну сторону ===
+            Direction decision = aggregateStrict(emaDir, volDir, imbDir, lsrDir);
+
+            if (decision != Direction.NEUTRAL) {
+                IndicatorSnapshot snap = new IndicatorSnapshot(
+                        emaDir, ema20, ema50,
+                        volDir, volRatio,
+                        imbDir, imbalance,
+                        lsrDir, lp, sp,
+                        currentPrice
+                );
+                writePrettyLog(symbol, snap, decision);
             }
-            double bids = depth.getBids().entrySet().stream().limit(DEPTH_LEVELS)
-                    .mapToDouble(e -> e.getValue().doubleValue()).sum();
-            double asks = depth.getAsks().entrySet().stream().limit(DEPTH_LEVELS)
-                    .mapToDouble(e -> e.getValue().doubleValue()).sum();
-            double imbalance = bids / (bids + asks + DEPTH_EPS);
 
-            // 4. Long/Short % (0…100)
-            double lv = ticks.stream()
-                    .filter(t -> !t.isBuyerIsMaker())
-                    .mapToDouble(t -> t.getQuantity().doubleValue())
-                    .sum();
-            double sv = ticks.stream()
-                    .filter(AggTrade::isBuyerIsMaker)
-                    .mapToDouble(t -> t.getQuantity().doubleValue())
-                    .sum();
-            double total = lv + sv;
-            double lp = total > 0 ? lv / total * 100.0 : 0.0;
-            double sp = total > 0 ? sv / total * 100.0 : 0.0;
+            // === Требуется 3 подряд одинаковых решения ===
+            Direction last = lastDecisionMap.getOrDefault(symbol, Direction.NEUTRAL);
+            int streak = streakMap.getOrDefault(symbol, 0);
 
-            // 5. Signal conditions (точно как в Python)
-            boolean volumeOk = volRatio >= VOL_RATIO_THRESHOLD;
-            boolean longOk = "long".equals(trend)
-                    && volumeOk
-                    && lp > MIN_LONG_PCT
-                    && imbalance > MIN_IMBALANCE_LONG;
-            boolean shortOk = "short".equals(trend)
-                    && volumeOk
-                    && sp > MIN_SHORT_PCT
-                    && imbalance < MAX_IMBALANCE_SHORT;
-            
-            TradingDirection signalDirection = longOk ? TradingDirection.LONG : shortOk ? TradingDirection.SHORT : null;
-            signal = signalDirection != null ? signalDirection.name() : "NO";
-
-            String last = lastSignalMap.getOrDefault(symbol, "NO");
-            int count = sameCountMap.getOrDefault(symbol, 0);
-            if ("NO".equals(signal)) {
-                last = "NO";
-                count = 0;
-            } else if (signal.equals(last)) {
-                count++;
+            if (decision == Direction.NEUTRAL) {
+                last = Direction.NEUTRAL;
+                streak = 0;
+            } else if (decision == last) {
+                streak++;
             } else {
-                last = signal;
-                count = 1;
+                last = decision;
+                streak = 1;
             }
-            lastSignalMap.put(symbol, last);
-            sameCountMap.put(symbol, count);
+            lastDecisionMap.put(symbol, last);
+            streakMap.put(symbol, streak);
 
-            // Получаем текущую цену из последнего тика
-            double currentPrice = ticks.isEmpty() ? 0.0 : ticks.get(0).getPrice().doubleValue();
+            if (decision != Direction.NEUTRAL && streak >= 3) {
+                finalDecision = decision;
+                logWriter.writeTradeLog(symbol, "📊 Final Decision: " + decision);
+                streakMap.put(symbol, 0);
 
-            // Логируем только если сигнал не NO
-            if (!"NO".equals(signal)) {
-                String logMessage = String.format("Price: %.6f | EMA: %s(%.6f/%.6f) | Volume: %s(%.2f) | Imbalance: %s(%.3f) | Long/Short: %s(%.1f%%/%.1f%%) | Signal: %s | Count: %d",
+                sendSignalToProcessing(
+                        plan,
+                        decision.name(),
                         currentPrice,
-                        trend != null ? trend.toUpperCase() : "NEUTRAL", ema20, ema50,
-                        volumeOk ? "HIGH" : "LOW", volRatio,
-                        imbalance > MIN_IMBALANCE_LONG ? "LONG" : imbalance < MAX_IMBALANCE_SHORT ? "SHORT" : "NEUTRAL", imbalance,
-                        lp > MIN_LONG_PCT ? "LONG" : sp > MIN_SHORT_PCT ? "SHORT" : "NEUTRAL", lp, sp,
-                        signal, count);
-
-                logWriter.writeTradeLog(symbol, logMessage);
-            }
-
-            // 7. Final logging on 3 подряд сигнала для всех индикаторов
-            if (count >= 3) {
-                logWriter.writeTradeLog(symbol, "📊 Final Signal: " + signal);
-                logWriter.writeTradeLog(symbol, "==============new cycle==============");
-                sameCountMap.put(symbol, 0);
-                
-                // Отправляем сигнал в процессинг сервис
-                sendSignalToProcessing(plan, signal, currentPrice, trend, volRatio, imbalance, lp, sp);
+                        emaDir.name(),
+                        volRatio, imbalance, lp, sp
+                );
             }
 
         } catch (Exception ex) {
-            log.error("Ошибка анализа для {}: {}", symbol, ex.getMessage(), ex);
+            log.error("Error analysis {}: {}", symbol, ex.getMessage(), ex);
         } finally {
-            long endTime = System.currentTimeMillis();
-            long duration = endTime - startTime;
-            if (!"NO".equals(signal)) {
-                logWriter.writeTradeLog(symbol, String.format("Analysis completed in %dms", duration));
+            long dt = System.currentTimeMillis() - t0;
+            if (finalDecision != Direction.NEUTRAL) {
+                logWriter.writeTradeLog(symbol, String.format("⏱ Analysis completed in %d ms", dt));
             }
         }
     }
 
-    /**
-     * Отправляет сигнал в процессинг сервис с блокировкой на минуту
-     */
-    private void sendSignalToProcessing(TradePlan plan, String signal, double currentPrice, String trend, double volRatio, double imbalance, double lp, double sp) {
+    /* ===================== Indicators & Helpers ===================== */
+
+    private Direction dirEma(double ema20, double ema50, double sens) {
+        double up = ema50 * (1 + sens);
+        double dn = ema50 * (1 - sens);
+        if (ema20 > up) return Direction.LONG;
+        if (ema20 < dn) return Direction.SHORT;
+        return Direction.NEUTRAL;
+    }
+
+    private Direction dirVolume(double volRatio, double threshold, Direction trendDir) {
+        // высокий объём поддерживает текущий тренд; без объёма — нейтрально
+        if (volRatio >= threshold) {
+            return trendDir;
+        }
+        return Direction.NEUTRAL;
+    }
+
+    private Direction dirImbalance(double imbalance, double minLong, double maxShort) {
+        if (imbalance >= minLong) return Direction.LONG;
+        if (imbalance <= maxShort) return Direction.SHORT;
+        return Direction.NEUTRAL;
+    }
+
+    private Direction dirLongShort(double lp, double sp, double minLongPct, double minShortPct) {
+        if (lp >= minLongPct) return Direction.LONG;
+        if (sp >= minShortPct) return Direction.SHORT;
+        return Direction.NEUTRAL;
+    }
+
+    private Direction aggregateStrict(Direction ema, Direction vol, Direction imb, Direction lsr) {
+        boolean allLong  = ema == Direction.LONG  && vol == Direction.LONG  && imb == Direction.LONG  && lsr == Direction.LONG;
+        boolean allShort = ema == Direction.SHORT && vol == Direction.SHORT && imb == Direction.SHORT && lsr == Direction.SHORT;
+        if (allLong)  return Direction.LONG;
+        if (allShort) return Direction.SHORT;
+        return Direction.NEUTRAL;
+    }
+
+    private double[] calcLongShortPct(Deque<AggTrade> dq) {
+        double lv = 0.0, sv = 0.0;
+        for (AggTrade t : dq) {
+            double q = t.getQuantity().doubleValue();
+            if (!t.isBuyerIsMaker()) lv += q; else sv += q;
+        }
+        double tot = lv + sv;
+        double lp = tot > 0 ? lv / tot * 100.0 : 0.0;
+        double sp = tot > 0 ? sv / tot * 100.0 : 0.0;
+        return new double[]{lp, sp};
+    }
+
+    private double calcImbalance(DepthModel depth, int levels) {
+        double bids = depth.getBids().entrySet().stream()
+                .limit(levels)
+                .mapToDouble(e -> e.getValue().doubleValue())
+                .sum();
+        double asks = depth.getAsks().entrySet().stream()
+                .limit(levels)
+                .mapToDouble(e -> e.getValue().doubleValue())
+                .sum();
+        return bids / (bids + asks + DEPTH_EPS);
+    }
+
+    private double calcVolRatio(Deque<AggTrade> dq, int windowSec) {
+        long nowSec = java.time.Instant.now().getEpochSecond();
+
+        final int BASELINE_SEC = 60;
+        long baseFrom = nowSec - BASELINE_SEC;
+        long winFrom  = nowSec - windowSec;
+
+        double vol60 = 0.0;
+        double curVol = 0.0;
+
+        for (AggTrade t : dq) {
+            long ts = t.getTradeTime() / 1000; // мс → с
+            double q = t.getQuantity().doubleValue();
+            if (ts >= baseFrom && ts <= nowSec) vol60 += q;
+            if (ts >= winFrom  && ts <= nowSec) curVol += q;
+        }
+
+        double avgPerSec = vol60 / BASELINE_SEC;
+        if (avgPerSec <= 0.0) return 0.0;
+
+        double baselineForWindow = avgPerSec * windowSec;
+        return curVol / baselineForWindow;
+    }
+
+    /** EMA по хронологии: oldest->newest через descendingIterator() */
+    private double calculateEMA(Deque<AggTrade> dq, int period) {
+        if (dq.isEmpty()) return 0.0;
+
+        var it = dq.descendingIterator(); // tail -> head (oldest -> newest)
+        if (!it.hasNext()) return 0.0;
+
+        int n = dq.size();
+        if (n < period) {
+            double sum = 0.0;
+            while (it.hasNext()) sum += it.next().getPrice().doubleValue();
+            return sum / n;
+        }
+
+        double k = 2.0 / (period + 1);
+        double ema = it.next().getPrice().doubleValue(); // старт с самого старого
+        while (it.hasNext()) {
+            double p = it.next().getPrice().doubleValue();
+            ema = p * k + ema * (1 - k);
+        }
+        return ema;
+    }
+
+    /* ===================== Logging & Processing ===================== */
+
+    private void writePrettyLog(String symbol, IndicatorSnapshot s, Direction decision) {
+        String msg =
+                "\n────────────────────────────────────────────────────────\n" +
+                        String.format("• %s | Price: %.6f\n", symbol, s.price()) +
+                        String.format("  EMA_TREND   : %-8s (EMA20=%.6f / EMA50=%.6f)\n", s.emaDir(), s.ema20(), s.ema50()) +
+                        String.format("  VOL_RATIO   : %-8s (%.2fx)\n", s.volDir(), s.volRatio()) +
+                        String.format("  IMBALANCE   : %-8s (%.3f)\n", s.imbDir(), s.imbalance()) +
+                        String.format("  LONG/SHORT  : %-8s (L=%.1f%% / S=%.1f%%)\n", s.lsrDir(), s.longPct(), s.shortPct()) +
+                        String.format("➜ DECISION    : %s\n", decision) +
+                        "────────────────────────────────────────────────────────";
+        logWriter.writeTradeLog(symbol, msg);
+    }
+
+    private void sendSignalToProcessing(TradePlan plan, String signal, double currentPrice,
+                                        String trend, double volRatio, double imbalance, double lp, double sp) {
         String symbol = plan.getSymbol();
-        
         lockMap.put(symbol, System.currentTimeMillis());
-        
-        String context = String.format("SIGNAL: %s | EMA: %s | VOL: %.2fx | IMB: %.3f | L/S: %.1f%%/%.1f%% | PRICE: %.6f",
-                signal, trend != null ? trend.toUpperCase() : "NEUTRAL", volRatio, imbalance, lp, sp, currentPrice);
-        
+
+        String context = String.format(
+                "SIGNAL: %s | EMA: %s | VOL: %.2fx | IMB: %.3f | L/S: %.1f%%/%.1f%% | PRICE: %.6f",
+                signal, trend, volRatio, imbalance, lp, sp, currentPrice
+        );
+
         log.info("🚀 Sending signal to processing: {} | {}", symbol, context);
-        
         try {
-            // Отправляем в процессинг сервис
-            TradingDirection direction = TradingDirection.valueOf(signal);
-            tradingProcessService.openOrder(plan, direction, BigDecimal.valueOf(currentPrice), context); //todo open
+//            TradingDirection dir = TradingDirection.valueOf(signal);
+            // tradingProcessService.openOrder(plan, dir, BigDecimal.valueOf(currentPrice), context); // todo open
             log.info("✅ Signal sent to processing for {}", symbol);
         } catch (Exception e) {
             log.error("❌ Error sending signal to processing for {}: {}", symbol, e.getMessage(), e);

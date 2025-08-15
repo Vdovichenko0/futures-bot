@@ -149,7 +149,7 @@ public class DepthServiceImpl implements DepthService {
         return orderBooks.containsKey(symbol.toUpperCase());
     }
 
-    @Override
+    @Override //todo remove
     public Map<String, DepthStats> getDepthStats() {
         return orderBooks.entrySet().stream()
                 .collect(Collectors.toMap(

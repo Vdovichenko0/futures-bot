@@ -18,9 +18,9 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class ExtraClose {
     private final Map<String, ExtraCloseState> tracking = new ConcurrentHashMap<>();
-    private static final BigDecimal BEST_ORDER = BigDecimal.valueOf(-0.10);
+    private static final BigDecimal BEST_ORDER = BigDecimal.valueOf(-0.20);
     private static final BigDecimal LOW_ORDER = BigDecimal.valueOf(-0.50);
-    private static final BigDecimal POSITION_GO_DOWN = BigDecimal.valueOf(-0.06);
+    private static final BigDecimal POSITION_GO_DOWN = BigDecimal.valueOf(-0.1);
     private static final Duration MAX_LIFETIME = Duration.ofMinutes(5);
 
     public boolean checkExtraClose(TradeSession session, BigDecimal pnlBest, BigDecimal pnlWorst, TradeOrder bestOrder) {

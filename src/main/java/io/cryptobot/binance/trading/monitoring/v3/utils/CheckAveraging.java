@@ -19,8 +19,10 @@ public class CheckAveraging {
     private static final BigDecimal POSITION_DOWN = new BigDecimal("3"); //3% my pnl, not roi
 
     /*
-    AVERAGING_OPEN
-    AVERAGING_CLOSE
+    определить флет по ema 20/50  todo
+    если флет то тру
+    если летим куда то фолс + большая вол
+    + написать сервис для вол
      */
 
     //check position
